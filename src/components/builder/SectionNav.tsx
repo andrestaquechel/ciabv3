@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Rocket,
+  PanelLeftClose,
 } from "lucide-react";
 import type {
   MiniBoxDocument,
@@ -17,6 +18,7 @@ import {
   BUILD_SECTION_ORDER,
   deriveSectionStatus,
 } from "@/lib/mini-box";
+import { useShell } from "@/components/layout/ShellContext";
 
 const statusIcon = (status: SectionStatus) => {
   switch (status) {
@@ -31,14 +33,16 @@ const statusIcon = (status: SectionStatus) => {
   }
 };
 
-function StagePill({
+function SectionItem({
   label,
-  sub,
+  sublabel,
+  status,
   active,
   onClick,
 }: {
   label: string;
-  sub: string;
+  sublabel?: string;
+  status: SectionStatus;
   active: boolean;
   onClick: () => void;
 }) {
@@ -46,14 +50,21 @@ function StagePill({
     <button
       type="button"
       onClick={onClick}
-      className={`mb-2 w-full rounded-full border px-3.5 py-2 text-left text-xs transition ${
+      className={`mb-1 flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm transition ${
         active
-          ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
-          : "border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-strong)] hover:text-[var(--text-muted)]"
+          ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+          : "text-[var(--text-muted)] hover:bg-[var(--bg-soft)] hover:text-[var(--text)]"
       }`}
     >
-      <span className="font-medium">{label}</span>
-      <span className="ml-1.5 uppercase tracking-wide opacity-70">{sub}</span>
+      {statusIcon(status)}
+      <span className="min-w-0 truncate">
+        {label}
+        {sublabel && (
+          <span className="ml-1.5 text-[10px] uppercase tracking-wide opacity-60">
+            {sublabel}
+          </span>
+        )}
+      </span>
     </button>
   );
 }
@@ -71,6 +82,11 @@ export function SectionNav({
   onPublish: () => void;
   publishing?: boolean;
 }) {
+  const { sectionsHidden, toggleSections } = useShell();
+
+  const ideateStatus = deriveSectionStatus(document, "ideate");
+  const reviewStatus = deriveSectionStatus(document, "review");
+
   const buildItems = useMemo(
     () =>
       BUILD_SECTION_ORDER.map((id) => {
@@ -81,52 +97,70 @@ export function SectionNav({
     [document],
   );
 
+  if (sectionsHidden) {
+    return (
+      <div className="flex h-full w-10 shrink-0 flex-col items-center border-r border-[var(--border)] bg-[var(--bg-elevated)] py-3">
+        <button
+          type="button"
+          onClick={toggleSections}
+          className="rounded-lg p-2 text-[var(--text-dim)] hover:bg-[var(--bg-soft)] hover:text-[var(--text)]"
+          title="Show sections"
+        >
+          <PanelLeftClose size={16} className="rotate-180" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full w-[240px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-elevated)]">
-      <div className="border-b border-[var(--border)] px-4 py-3">
-        <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
-          Sections
+      <div className="flex items-start justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+            Sections
+          </div>
+          <div className="mt-1 truncate text-sm font-medium">
+            {document.title || "Untitled Mini Box"}
+          </div>
         </div>
-        <div className="mt-1 truncate text-sm font-medium">
-          {document.title || "Untitled Mini Box"}
-        </div>
+        <button
+          type="button"
+          onClick={toggleSections}
+          className="shrink-0 rounded-lg p-1.5 text-[var(--text-dim)] hover:bg-[var(--bg-soft)] hover:text-[var(--text)]"
+          title="Hide sections"
+        >
+          <PanelLeftClose size={14} />
+        </button>
       </div>
 
       <div className="flex-1 overflow-auto p-3 scrollbar-thin">
-        <StagePill
+        <SectionItem
           label="Topic"
-          sub="Ideate"
+          sublabel="Ideate"
+          status={ideateStatus}
           active={activeId === "ideate"}
           onClick={() => onSelect("ideate")}
         />
 
-        <div className="mb-2 mt-1 px-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+        <div className="mb-2 mt-3 px-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
           Build
         </div>
 
-        {buildItems.map((item) => {
-          const active = item.id === activeId;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onSelect(item.id)}
-              className={`mb-1 flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm transition ${
-                active
-                  ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-                  : "text-[var(--text-muted)] hover:bg-[var(--bg-soft)] hover:text-[var(--text)]"
-              }`}
-            >
-              {statusIcon(item.status)}
-              <span className="truncate">{item.label}</span>
-            </button>
-          );
-        })}
+        {buildItems.map((item) => (
+          <SectionItem
+            key={item.id}
+            label={item.label}
+            status={item.status}
+            active={item.id === activeId}
+            onClick={() => onSelect(item.id)}
+          />
+        ))}
 
         <div className="mt-3 border-t border-[var(--border)] pt-3">
-          <StagePill
+          <SectionItem
             label="Review"
-            sub="Review"
+            sublabel="Review"
+            status={reviewStatus}
             active={activeId === "review"}
             onClick={() => onSelect("review")}
           />
