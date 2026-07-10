@@ -32,7 +32,7 @@ export function ReviewPanel({
           <StatusPill status={status} />
         </div>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Check each section before publishing to Google Slides.
+          Check each section, then download the PowerPoint to upload to Google Drive / Slides.
         </p>
       </div>
 
@@ -81,7 +81,7 @@ export function ReviewPanel({
           onClick={onPublish}
           className="mt-2 w-full rounded-full bg-[var(--accent-strong)] px-4 py-3 text-sm font-medium text-white hover:brightness-110"
         >
-          Publish
+          Publish · Download PPTX
         </button>
       </div>
     </div>

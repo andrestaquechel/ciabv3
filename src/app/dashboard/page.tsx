@@ -1,11 +1,8 @@
 import Link from "next/link";
-import { auth } from "@/lib/auth";
 import { AppShell } from "@/components/layout/AppShell";
-import { Plus } from "lucide-react";
+import { Download, Plus } from "lucide-react";
 
-export default async function DashboardPage() {
-  const session = await auth();
-
+export default function DashboardPage() {
   return (
     <AppShell
       topBar={
@@ -27,13 +24,10 @@ export default async function DashboardPage() {
     >
       <div className="h-full overflow-auto p-6 scrollbar-thin">
         <div className="mb-6">
-          <h1 className="text-xl font-semibold tracking-tight">
-            Welcome
-            {session?.user?.name ? `, ${session.user.name.split(" ")[0]}` : ""}
-          </h1>
+          <h1 className="text-xl font-semibold tracking-tight">Box Studio</h1>
           <p className="mt-1 text-sm text-[var(--text-muted)]">
-            Build Mini Boxes with topic + article inputs, AI drafts, Giphy, and
-            live preview. Connect Google when you&apos;re ready to sync Slides.
+            Build Mini Boxes natively as PowerPoint. Download the PPTX when
+            ready, then upload to Google Drive and open as Google Slides.
           </p>
         </div>
 
@@ -49,8 +43,7 @@ export default async function DashboardPage() {
               Create Mini Box
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-[var(--text-muted)]">
-              Topic + articles → Welcome, One-Pager, Chat + GIF slots. Local
-              render updates as you edit.
+              Ideate → Topics & Articles → sections → Review → download PPTX.
             </p>
           </Link>
 
@@ -65,25 +58,14 @@ export default async function DashboardPage() {
           </div>
 
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
-            <div className="mb-3 inline-flex rounded-full bg-[var(--bg-soft)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-muted)]">
-              Connection
+            <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-soft)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-muted)]">
+              <Download size={12} />
+              Export
             </div>
-            <h2 className="text-base font-medium">Google Slides</h2>
+            <h2 className="text-base font-medium">PowerPoint → Drive</h2>
             <p className="mt-2 text-sm leading-relaxed text-[var(--text-muted)]">
-              {session?.user?.email ? (
-                <>
-                  Signed in as{" "}
-                  <span className="text-[var(--text)]">{session.user.email}</span>.
-                </>
-              ) : (
-                <>
-                  Not connected yet.{" "}
-                  <Link href="/login" className="text-[var(--accent)]">
-                    Connect Google
-                  </Link>{" "}
-                  to copy templates into Drive.
-                </>
-              )}
+              Publish downloads a 7-slide Mini Box PPTX. Upload to Drive and
+              open with Google Slides for distribution.
             </p>
           </div>
         </div>

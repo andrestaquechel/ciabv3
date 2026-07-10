@@ -2,14 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut, useSession } from "next-auth/react";
 import {
   LayoutDashboard,
   Boxes,
   BarChart3,
   BookOpen,
   Settings,
-  LogOut,
 } from "lucide-react";
 
 const nav = [
@@ -21,7 +19,6 @@ const nav = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { data: session } = useSession();
 
   return (
     <aside className="flex h-full w-[220px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-elevated)]">
@@ -69,26 +66,13 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-[var(--border)] p-3">
-        {session?.user && (
-          <div className="mb-2 truncate px-3 text-xs text-[var(--text-dim)]">
-            {session.user.email}
-          </div>
-        )}
         <Link
           href="/settings"
-          className="mb-1 flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-soft)] hover:text-[var(--text)]"
+          className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-soft)] hover:text-[var(--text)]"
         >
           <Settings size={16} />
           Settings
         </Link>
-        <button
-          type="button"
-          onClick={() => signOut({ callbackUrl: "/login" })}
-          className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-soft)] hover:text-[var(--text)]"
-        >
-          <LogOut size={16} />
-          Sign out
-        </button>
       </div>
     </aside>
   );

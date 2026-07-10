@@ -138,7 +138,7 @@ export function SectionNav({
             className="mt-1 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent-strong)] px-3.5 py-2.5 text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-50"
           >
             <Rocket size={14} />
-            {publishing ? "Publishing…" : "Publish"}
+            {publishing ? "Downloading…" : "Publish · PPTX"}
           </button>
         </div>
       </div>

@@ -1,9 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { useSession } from "next-auth/react";
-import { CloudUpload, Loader2, Plus } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import {
   createEmptyMiniBox,
   type MiniBoxDocument,
@@ -15,8 +13,7 @@ import { SectionEditor } from "@/components/builder/SectionEditor";
 import { TopicArticlesEditor } from "@/components/builder/TopicArticlesEditor";
 import { IdeatePanel } from "@/components/builder/IdeatePanel";
 import { ReviewPanel } from "@/components/builder/ReviewPanel";
-import { SlidesPreview } from "@/components/builder/SlidesPreview";
-import { LocalRenderPreview } from "@/components/builder/LocalRenderPreview";
+import { PptPreview } from "@/components/builder/PptPreview";
 
 const STORAGE_KEY = "box-studio:mini-boxes";
 
@@ -59,18 +56,44 @@ function saveDoc(doc: MiniBoxDocument) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
 }
 
+async function downloadPptx(doc: MiniBoxDocument) {
+  const res = await fetch("/api/pptx/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ document: doc }),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(
+      (data as { error?: string }).error || "Failed to export PowerPoint.",
+    );
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match?.[1] || "Mini-Box.pptx";
+
+  const url = URL.createObjectURL(blob);
+  const a = window.document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  window.document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+
+  return filename;
+}
+
 export function MiniBoxBuilder({ initialId }: { initialId: string }) {
-  const { data: session, status } = useSession();
   const [document, setDocument] = useState<MiniBoxDocument | null>(null);
   const [activeSection, setActiveSection] =
     useState<MiniBoxSectionId>("ideate");
-  const [previewMode, setPreviewMode] = useState<"local" | "slides">("local");
-  const [syncing, setSyncing] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (initialId === "new") {
@@ -89,72 +112,6 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
     saveDoc(next);
   }, []);
 
-  async function createSlidesDeck() {
-    if (!document) return;
-    if (!session?.accessToken) {
-      setError("Connect Google first to create a Slides deck.");
-      return;
-    }
-    setCreating(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const res = await fetch("/api/slides/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: `Mini Box — ${document.title || "Untitled"}`,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to create deck");
-      const next = {
-        ...document,
-        slidesPresentationId: data.presentationId as string,
-        updatedAt: new Date().toISOString(),
-      };
-      updateDoc(next);
-      setPreviewMode("slides");
-      setMessage("Google Slides deck created from your template.");
-      setRefreshKey((k) => k + 1);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create deck");
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function syncToSlides() {
-    if (!document?.slidesPresentationId) {
-      setError("Create a Slides deck first.");
-      return;
-    }
-    setSyncing(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const res = await fetch("/api/slides/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          presentationId: document.slidesPresentationId,
-          document,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Sync failed");
-      setMessage(
-        data.note ||
-          `Synced ${data.synced} field(s) to Google Slides. Refresh preview if needed.`,
-      );
-      setRefreshKey((k) => k + 1);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Sync failed");
-    } finally {
-      setSyncing(false);
-    }
-  }
-
   async function publish() {
     if (!document) return;
     setPublishing(true);
@@ -163,52 +120,15 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
     setActiveSection("review");
 
     try {
-      if (!session?.accessToken) {
-        setError("Connect Google to publish to Slides. You can still review content locally.");
-        updateDoc({
-          ...document,
-          status: "review",
-          updatedAt: new Date().toISOString(),
-        });
-        return;
-      }
-
-      let presentationId = document.slidesPresentationId;
-      if (!presentationId) {
-        const res = await fetch("/api/slides/create", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: `Mini Box — ${document.title || "Untitled"}`,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to create deck");
-        presentationId = data.presentationId as string;
-      }
-
-      const nextDoc = {
+      const filename = await downloadPptx(document);
+      updateDoc({
         ...document,
-        slidesPresentationId: presentationId,
-        status: "published" as const,
+        status: "published",
         updatedAt: new Date().toISOString(),
-      };
-
-      const syncRes = await fetch("/api/slides/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          presentationId,
-          document: nextDoc,
-        }),
       });
-      const syncData = await syncRes.json();
-      if (!syncRes.ok) throw new Error(syncData.error || "Sync failed");
-
-      updateDoc(nextDoc);
-      setPreviewMode("slides");
-      setRefreshKey((k) => k + 1);
-      setMessage("Published — content synced to Google Slides.");
+      setMessage(
+        `Downloaded ${filename}. Upload it to Google Drive → Open with Google Slides when you're ready.`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Publish failed");
     } finally {
@@ -216,7 +136,7 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
     }
   }
 
-  if (status === "loading" || !document) {
+  if (!document) {
     return (
       <div className="flex h-screen items-center justify-center text-[var(--text-muted)]">
         <Loader2 className="animate-spin" size={20} />
@@ -237,45 +157,19 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {status !== "authenticated" && (
-              <Link
-                href="/login"
-                className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
-              >
-                Connect Google
-              </Link>
-            )}
-            {!document.slidesPresentationId ? (
-              <button
-                type="button"
-                onClick={() => void createSlidesDeck()}
-                disabled={creating}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-3.5 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
-              >
-                {creating ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Plus size={14} />
-                )}
-                Create Slides deck
-              </button>
+          <button
+            type="button"
+            onClick={() => void publish()}
+            disabled={publishing}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent-strong)] px-3.5 py-2 text-sm font-medium text-white hover:brightness-110 disabled:opacity-50"
+          >
+            {publishing ? (
+              <Loader2 size={14} className="animate-spin" />
             ) : (
-              <button
-                type="button"
-                onClick={() => void syncToSlides()}
-                disabled={syncing}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-3.5 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
-              >
-                {syncing ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <CloudUpload size={14} />
-                )}
-                Sync to Slides
-              </button>
+              <Download size={14} />
             )}
-          </div>
+            Download PPTX
+          </button>
         </header>
       }
     >
@@ -318,51 +212,14 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
             ) : (
               <SectionEditor
                 document={document}
-                sectionId={activeSection}
+                sectionId={activeSection as "title" | "welcome" | "onePager" | "chat"}
                 onChange={updateDoc}
               />
             )}
           </div>
 
-          <div className="hidden w-[46%] min-w-[360px] flex-col gap-3 p-4 xl:flex">
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPreviewMode("local")}
-                className={`rounded-lg px-2.5 py-1 text-xs ${
-                  previewMode === "local"
-                    ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-                    : "text-[var(--text-dim)]"
-                }`}
-              >
-                Local render
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewMode("slides")}
-                className={`rounded-lg px-2.5 py-1 text-xs ${
-                  previewMode === "slides"
-                    ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-                    : "text-[var(--text-dim)]"
-                }`}
-              >
-                Google Slides
-              </button>
-            </div>
-            <div className="min-h-0 flex-1">
-              {previewMode === "local" ? (
-                <LocalRenderPreview
-                  document={document}
-                  activeSection={activeSection}
-                />
-              ) : (
-                <SlidesPreview
-                  presentationId={document.slidesPresentationId}
-                  refreshKey={refreshKey}
-                  onRefresh={() => setRefreshKey((k) => k + 1)}
-                />
-              )}
-            </div>
+          <div className="hidden w-[46%] min-w-[360px] p-4 xl:block">
+            <PptPreview document={document} activeSection={activeSection} />
           </div>
         </div>
       </div>

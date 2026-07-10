@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Box Studio — CIAB Builder",
-  description: "Build Mini Box and Campaign in a Box content with live Google Slides preview.",
+  description: "Build Mini Box and Campaign in a Box content as native PowerPoint.",
 };
 
 export default function RootLayout({

@@ -12,12 +12,12 @@ import {
 import type {
   GifSelection,
   MiniBoxDocument,
-  MiniBoxSectionId,
 } from "@/lib/mini-box";
 import { deriveSectionStatus } from "@/lib/mini-box";
 import { GifPicker } from "@/components/builder/GifPicker";
 import { StatusPill } from "@/components/builder/SectionNav";
 
+type ContentSectionId = "title" | "welcome" | "onePager" | "chat";
 type AiAction = "generate" | "shorten" | "warmer" | "sharper" | "concrete";
 
 function Field({
@@ -55,7 +55,7 @@ export function SectionEditor({
   onChange,
 }: {
   document: MiniBoxDocument;
-  sectionId: MiniBoxSectionId;
+  sectionId: ContentSectionId;
   onChange: (next: MiniBoxDocument) => void;
 }) {
   const [aiLoading, setAiLoading] = useState(false);
@@ -156,7 +156,7 @@ export function SectionEditor({
           <StatusPill status={status} />
         </div>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Edit this section, then sync to Google Slides on the right.
+          Edit this section — the PowerPoint preview on the right updates live.
         </p>
       </div>
 
