@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signIn, signOut, useSession } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import {
   LayoutDashboard,
   Boxes,
@@ -84,18 +84,9 @@ export function Sidebar() {
 
       <div className="border-t border-[var(--border)] p-3">
         {session?.user ? (
-          <>
-            <div className="mb-2 truncate px-3 text-xs text-[var(--text-dim)]">
-              {session.user.email}
-            </div>
-            <button
-              type="button"
-              onClick={() => signOut({ callbackUrl: "/login" })}
-              className="mb-1 w-full rounded-xl px-3 py-2 text-left text-xs text-[var(--text-muted)] hover:bg-[var(--bg-soft)]"
-            >
-              Sign out
-            </button>
-          </>
+          <div className="mb-2 truncate px-3 text-xs text-[var(--text-dim)]">
+            {session.user.email}
+          </div>
         ) : (
           <button
             type="button"

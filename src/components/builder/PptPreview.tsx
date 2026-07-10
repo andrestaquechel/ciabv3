@@ -20,15 +20,20 @@ function sectionToSlideIndex(section: MiniBoxSectionId): number {
   if (section === "welcome") return 1;
   if (section === "onePager") return 3;
   if (section === "chat") return 6;
+  if (section === "review") return 6;
   return 0;
 }
 
 export function PptPreview({
   document,
   activeSection,
+  syncPreview = true,
+  boxType = "mini-box",
 }: {
   document: MiniBoxDocument;
   activeSection: MiniBoxSectionId;
+  syncPreview?: boolean;
+  boxType?: "mini-box" | "ciab";
 }) {
   const [index, setIndex] = useState(0);
   const [presentation, setPresentation] = useState<import("pptx-viewer").LoadedPresentation | null>(null);
@@ -38,8 +43,10 @@ export function PptPreview({
   const containerWidthRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setIndex(sectionToSlideIndex(activeSection));
-  }, [activeSection]);
+    if (syncPreview) {
+      setIndex(sectionToSlideIndex(activeSection));
+    }
+  }, [activeSection, syncPreview]);
 
   useEffect(() => {
     const timer = setTimeout(async () => {
@@ -100,7 +107,7 @@ export function PptPreview({
       <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
         <div>
           <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
-            Mini Box template preview
+            {boxType === "ciab" ? "CIAB" : "Mini Box"} template preview
           </div>
           <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
             Slide {index + 1} of 7 · {SLIDE_LABELS[index]}

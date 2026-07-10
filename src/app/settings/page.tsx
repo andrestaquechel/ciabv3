@@ -8,7 +8,7 @@ import {
   parseDriveFolderId,
   type BoxType,
 } from "@/lib/knowledge-store";
-import { useSession } from "next-auth/react";
+import { signIn, signOut, useSession } from "next-auth/react";
 import { useState } from "react";
 
 export default function SettingsPage() {
@@ -61,6 +61,38 @@ export default function SettingsPage() {
       }
     >
       <div className="mx-auto max-w-2xl space-y-4 p-6">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
+          <h2 className="text-base font-medium">Account</h2>
+          {session?.user ? (
+            <div className="mt-3 space-y-3">
+              <p className="text-sm text-[var(--text-muted)]">
+                Signed in as{" "}
+                <span className="text-[var(--text)]">{session.user.email}</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => signOut({ callbackUrl: "/login" })}
+                className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-soft)]"
+              >
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <div className="mt-3">
+              <p className="text-sm text-[var(--text-muted)]">
+                Connect Google to browse Drive folders in Knowledge Base.
+              </p>
+              <button
+                type="button"
+                onClick={() => signIn("google", { callbackUrl: "/settings" })}
+                className="mt-3 rounded-xl bg-[var(--accent-strong)] px-4 py-2 text-sm text-white"
+              >
+                Connect Google
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
           <h1 className="text-base font-medium">Knowledge Base folders</h1>
           <p className="mt-2 text-sm text-[var(--text-muted)]">

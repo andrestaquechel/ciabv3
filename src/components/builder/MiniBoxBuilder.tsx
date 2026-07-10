@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
-import {
-  createEmptyMiniBox,
-  type MiniBoxDocument,
-  type MiniBoxSectionId,
-} from "@/lib/mini-box";
+import type { MiniBoxDocument, MiniBoxSectionId } from "@/lib/mini-box";
 import { AppShell } from "@/components/layout/AppShell";
 import { SectionNav } from "@/components/builder/SectionNav";
 import { SectionEditor } from "@/components/builder/SectionEditor";
@@ -14,47 +10,15 @@ import { TopicArticlesEditor } from "@/components/builder/TopicArticlesEditor";
 import { IdeatePanel } from "@/components/builder/IdeatePanel";
 import { ReviewPanel } from "@/components/builder/ReviewPanel";
 import { PptPreview } from "@/components/builder/PptPreview";
-
-const STORAGE_KEY = "box-studio:mini-boxes";
-
-function migrateDoc(raw: MiniBoxDocument): MiniBoxDocument {
-  const base = createEmptyMiniBox(raw.topic || raw.title || "");
-  return {
-    ...base,
-    ...raw,
-    articles: raw.articles || [],
-    signature: raw.signature || "{{ SIGNATURE }}",
-    sections: {
-      ...base.sections,
-      ...raw.sections,
-      ideate: raw.sections?.ideate || base.sections.ideate,
-      inputs: raw.sections?.inputs || base.sections.inputs,
-      review: raw.sections?.review || base.sections.review,
-    },
-  };
-}
-
-function loadDoc(id: string): MiniBoxDocument | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const all = JSON.parse(raw) as MiniBoxDocument[];
-    const found = all.find((d) => d.id === id);
-    return found ? migrateDoc(found) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveDoc(doc: MiniBoxDocument) {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  const all: MiniBoxDocument[] = raw ? JSON.parse(raw) : [];
-  const idx = all.findIndex((d) => d.id === doc.id);
-  if (idx >= 0) all[idx] = doc;
-  else all.unshift(doc);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
-}
+import { BuilderTopBar } from "@/components/builder/BuilderTopBar";
+import {
+  createBox,
+  loadBox,
+  loadSyncPreviewPreference,
+  saveBox,
+  saveSyncPreviewPreference,
+  type BoxKind,
+} from "@/lib/box-store";
 
 async function downloadPptx(doc: MiniBoxDocument) {
   const res = await fetch("/api/pptx/export", {
@@ -91,26 +55,55 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
   const [document, setDocument] = useState<MiniBoxDocument | null>(null);
   const [activeSection, setActiveSection] =
     useState<MiniBoxSectionId>("ideate");
+  const [syncPreview, setSyncPreview] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setSyncPreview(loadSyncPreviewPreference());
+  }, []);
+
+  useEffect(() => {
     if (initialId === "new") {
-      const doc = createEmptyMiniBox();
+      const doc = createBox("mini-box");
       setDocument(doc);
-      saveDoc(doc);
+      saveBox(doc);
       window.history.replaceState(null, "", `/builder/${doc.id}`);
       return;
     }
-    const existing = loadDoc(initialId);
-    setDocument(existing || createEmptyMiniBox());
+    const existing = loadBox(initialId);
+    setDocument(existing || createBox("mini-box"));
   }, [initialId]);
 
   const updateDoc = useCallback((next: MiniBoxDocument) => {
     setDocument(next);
-    saveDoc(next);
+    saveBox(next);
   }, []);
+
+  function handleSyncPreviewChange(enabled: boolean) {
+    setSyncPreview(enabled);
+    saveSyncPreviewPreference(enabled);
+  }
+
+  function handleRename(title: string) {
+    if (!document) return;
+    updateDoc({
+      ...document,
+      title,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  function handleSwitchBox(id: string) {
+    window.location.href = `/builder/${id}`;
+  }
+
+  function handleNewBox(kind: BoxKind) {
+    const doc = createBox(kind);
+    saveBox(doc);
+    window.location.href = `/builder/${doc.id}`;
+  }
 
   async function publish() {
     if (!document) return;
@@ -147,15 +140,14 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
   return (
     <AppShell
       topBar={
-        <header className="flex h-14 items-center border-b border-[var(--border)] px-5">
-          <div className="truncate text-sm">
-            <span className="text-[var(--text-muted)]">Mini Box</span>
-            <span className="mx-2 text-[var(--text-dim)]">/</span>
-            <span className="font-medium">
-              {document.title || "Untitled"}
-            </span>
-          </div>
-        </header>
+        <BuilderTopBar
+          document={document}
+          syncPreview={syncPreview}
+          onSyncPreviewChange={handleSyncPreviewChange}
+          onRename={handleRename}
+          onSwitchBox={handleSwitchBox}
+          onNewBox={handleNewBox}
+        />
       }
     >
       <div className="flex h-full min-h-0">
@@ -204,7 +196,12 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
           </div>
 
           <div className="hidden w-[46%] min-w-[360px] p-4 xl:block">
-            <PptPreview document={document} activeSection={activeSection} />
+            <PptPreview
+              document={document}
+              activeSection={activeSection}
+              syncPreview={syncPreview}
+              boxType={document.type}
+            />
           </div>
         </div>
       </div>

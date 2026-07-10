@@ -26,7 +26,7 @@ export type MiniBoxSectionId =
 
 export type MiniBoxDocument = {
   id: string;
-  type: "mini-box";
+  type: "mini-box" | "ciab";
   title: string;
   topic: string;
   articles: SourceArticle[];
@@ -171,6 +171,16 @@ export function createEmptyMiniBox(topic = ""): MiniBoxDocument {
   };
 }
 
+export function createEmptyCiab(topic = ""): MiniBoxDocument {
+  const doc = createEmptyMiniBox(topic);
+  return {
+    ...doc,
+    id: `ciab-${Date.now()}`,
+    type: "ciab",
+    title: topic || "Untitled CIAB",
+  };
+}
+
 export function sectionNeedsGif(id: MiniBoxSectionId): boolean {
   return id === "welcome" || id === "onePager" || id === "chat";
 }
@@ -181,7 +191,8 @@ export function deriveSectionStatus(
 ): SectionStatus {
   if (sectionId === "ideate") {
     const notes = doc.sections.ideate?.notes?.trim() || "";
-    if (notes || doc.topic.trim()) return "draft";
+    const titleName = doc.sections.title?.topicTitle?.trim() || "";
+    if (notes || doc.topic.trim() || titleName) return "draft";
     return "empty";
   }
 
