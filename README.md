@@ -5,6 +5,8 @@ Build **Mini Box** content with a native PowerPoint builder. Preview slides live
 **Live:** https://ciabv2-gilt.vercel.app  
 **Repo:** https://github.com/andrestaquechel/ciabv3  
 
+Pushes to `main` auto-deploy via Vercel (Git integration).
+
 ## Flow
 
 1. **Topic IDEATE** — brainstorm + AI topic ideas  
