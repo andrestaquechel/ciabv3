@@ -10,12 +10,11 @@ import {
   type MiniBoxSectionId,
 } from "@/lib/mini-box";
 import { AppShell } from "@/components/layout/AppShell";
-import {
-  SectionNav,
-  WorkflowTabs,
-} from "@/components/builder/SectionNav";
+import { SectionNav } from "@/components/builder/SectionNav";
 import { SectionEditor } from "@/components/builder/SectionEditor";
 import { TopicArticlesEditor } from "@/components/builder/TopicArticlesEditor";
+import { IdeatePanel } from "@/components/builder/IdeatePanel";
+import { ReviewPanel } from "@/components/builder/ReviewPanel";
 import { SlidesPreview } from "@/components/builder/SlidesPreview";
 import { LocalRenderPreview } from "@/components/builder/LocalRenderPreview";
 
@@ -31,7 +30,9 @@ function migrateDoc(raw: MiniBoxDocument): MiniBoxDocument {
     sections: {
       ...base.sections,
       ...raw.sections,
+      ideate: raw.sections?.ideate || base.sections.ideate,
       inputs: raw.sections?.inputs || base.sections.inputs,
+      review: raw.sections?.review || base.sections.review,
     },
   };
 }
@@ -62,10 +63,11 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
   const { data: session, status } = useSession();
   const [document, setDocument] = useState<MiniBoxDocument | null>(null);
   const [activeSection, setActiveSection] =
-    useState<MiniBoxSectionId>("inputs");
+    useState<MiniBoxSectionId>("ideate");
   const [previewMode, setPreviewMode] = useState<"local" | "slides">("local");
   const [syncing, setSyncing] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -153,6 +155,67 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
     }
   }
 
+  async function publish() {
+    if (!document) return;
+    setPublishing(true);
+    setError(null);
+    setMessage(null);
+    setActiveSection("review");
+
+    try {
+      if (!session?.accessToken) {
+        setError("Connect Google to publish to Slides. You can still review content locally.");
+        updateDoc({
+          ...document,
+          status: "review",
+          updatedAt: new Date().toISOString(),
+        });
+        return;
+      }
+
+      let presentationId = document.slidesPresentationId;
+      if (!presentationId) {
+        const res = await fetch("/api/slides/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: `Mini Box — ${document.title || "Untitled"}`,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to create deck");
+        presentationId = data.presentationId as string;
+      }
+
+      const nextDoc = {
+        ...document,
+        slidesPresentationId: presentationId,
+        status: "published" as const,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const syncRes = await fetch("/api/slides/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          presentationId,
+          document: nextDoc,
+        }),
+      });
+      const syncData = await syncRes.json();
+      if (!syncRes.ok) throw new Error(syncData.error || "Sync failed");
+
+      updateDoc(nextDoc);
+      setPreviewMode("slides");
+      setRefreshKey((k) => k + 1);
+      setMessage("Published — content synced to Google Slides.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Publish failed");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   if (status === "loading" || !document) {
     return (
       <div className="flex h-screen items-center justify-center text-[var(--text-muted)]">
@@ -174,7 +237,6 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
               </span>
             </div>
           </div>
-          <WorkflowTabs active="build" />
           <div className="flex items-center gap-2">
             {status !== "authenticated" && (
               <Link
@@ -189,7 +251,7 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
                 type="button"
                 onClick={() => void createSlidesDeck()}
                 disabled={creating}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent-strong)] px-3.5 py-2 text-sm font-medium text-white hover:brightness-110 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-3.5 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
               >
                 {creating ? (
                   <Loader2 size={14} className="animate-spin" />
@@ -203,7 +265,7 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
                 type="button"
                 onClick={() => void syncToSlides()}
                 disabled={syncing}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent-strong)] px-3.5 py-2 text-sm font-medium text-white hover:brightness-110 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-3.5 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
               >
                 {syncing ? (
                   <Loader2 size={14} className="animate-spin" />
@@ -222,6 +284,8 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
           document={document}
           activeId={activeSection}
           onSelect={setActiveSection}
+          onPublish={() => void publish()}
+          publishing={publishing}
         />
 
         <div className="flex min-w-0 flex-1">
@@ -237,8 +301,20 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
                 {error || message}
               </div>
             )}
-            {activeSection === "inputs" ? (
+            {activeSection === "ideate" ? (
+              <IdeatePanel
+                document={document}
+                onChange={updateDoc}
+                onContinue={() => setActiveSection("inputs")}
+              />
+            ) : activeSection === "inputs" ? (
               <TopicArticlesEditor document={document} onChange={updateDoc} />
+            ) : activeSection === "review" ? (
+              <ReviewPanel
+                document={document}
+                onJump={(id) => setActiveSection(id)}
+                onPublish={() => void publish()}
+              />
             ) : (
               <SectionEditor
                 document={document}

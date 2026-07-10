@@ -74,7 +74,12 @@ function mockGenerate(body: GenerateBody) {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as GenerateBody;
-    if (!body.sectionId || body.sectionId === "inputs") {
+    if (
+      !body.sectionId ||
+      body.sectionId === "inputs" ||
+      body.sectionId === "ideate" ||
+      body.sectionId === "review"
+    ) {
       return NextResponse.json(
         { error: "Pick a content section to generate." },
         { status: 400 },

@@ -16,11 +16,13 @@ export type SourceArticle = {
 };
 
 export type MiniBoxSectionId =
+  | "ideate"
   | "inputs"
   | "title"
   | "welcome"
   | "onePager"
-  | "chat";
+  | "chat"
+  | "review";
 
 export type MiniBoxDocument = {
   id: string;
@@ -34,6 +36,12 @@ export type MiniBoxDocument = {
   slidesPresentationId: string | null;
   signature: string;
   sections: {
+    ideate: {
+      id: "ideate";
+      label: string;
+      status: SectionStatus;
+      notes: string;
+    };
     inputs: {
       id: "inputs";
       label: string;
@@ -71,15 +79,27 @@ export type MiniBoxDocument = {
       message: string;
       gif: GifSelection;
     };
+    review: {
+      id: "review";
+      label: string;
+      status: SectionStatus;
+    };
   };
 };
 
-export const SECTION_ORDER: MiniBoxSectionId[] = [
+/** Build content sections shown between Ideate and Review */
+export const BUILD_SECTION_ORDER: MiniBoxSectionId[] = [
   "inputs",
   "title",
   "welcome",
   "onePager",
   "chat",
+];
+
+export const SECTION_ORDER: MiniBoxSectionId[] = [
+  "ideate",
+  ...BUILD_SECTION_ORDER,
+  "review",
 ];
 
 export function createEmptyMiniBox(topic = ""): MiniBoxDocument {
@@ -98,9 +118,15 @@ export function createEmptyMiniBox(topic = ""): MiniBoxDocument {
     slidesPresentationId: null,
     signature: "{{ SIGNATURE }}",
     sections: {
+      ideate: {
+        id: "ideate",
+        label: "Ideate",
+        status: "empty",
+        notes: "",
+      },
       inputs: {
         id: "inputs",
-        label: "Topic & Articles",
+        label: "Topics & Articles",
         status: topic ? "draft" : "empty",
       },
       title: {
@@ -136,6 +162,11 @@ export function createEmptyMiniBox(topic = ""): MiniBoxDocument {
         message: "",
         gif: null,
       },
+      review: {
+        id: "review",
+        label: "Review",
+        status: "empty",
+      },
     },
   };
 }
@@ -148,7 +179,11 @@ export function deriveSectionStatus(
   doc: MiniBoxDocument,
   sectionId: MiniBoxSectionId,
 ): SectionStatus {
-  const section = doc.sections[sectionId];
+  if (sectionId === "ideate") {
+    const notes = doc.sections.ideate?.notes?.trim() || "";
+    if (notes || doc.topic.trim()) return "draft";
+    return "empty";
+  }
 
   if (sectionId === "inputs") {
     const hasTopic = doc.topic.trim().length > 0;
@@ -159,6 +194,17 @@ export function deriveSectionStatus(
     if (hasTopic && hasArticles) return "ready";
     return "draft";
   }
+
+  if (sectionId === "review") {
+    const buildStatuses = BUILD_SECTION_ORDER.map((id) =>
+      deriveSectionStatus(doc, id),
+    );
+    if (buildStatuses.every((s) => s === "ready")) return "ready";
+    if (buildStatuses.some((s) => s === "draft" || s === "ready")) return "draft";
+    return "empty";
+  }
+
+  const section = doc.sections[sectionId];
 
   if (section.id === "title") {
     return section.topicTitle.trim() ? "draft" : "empty";

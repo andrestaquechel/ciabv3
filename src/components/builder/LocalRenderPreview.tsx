@@ -25,7 +25,11 @@ export function LocalRenderPreview({
 
       <div className="flex-1 space-y-4 overflow-auto p-4 scrollbar-thin">
         <SlideCard
-          active={activeSection === "title" || activeSection === "inputs"}
+          active={
+            activeSection === "title" ||
+            activeSection === "inputs" ||
+            activeSection === "ideate"
+          }
           label="Slide 1 · Cover"
         >
           <h3 className="text-xl font-semibold tracking-tight">{topic}</h3>

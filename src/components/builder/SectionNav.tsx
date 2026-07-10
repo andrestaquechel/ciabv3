@@ -6,13 +6,17 @@ import {
   CircleDot,
   CheckCircle2,
   AlertCircle,
+  Rocket,
 } from "lucide-react";
 import type {
   MiniBoxDocument,
   MiniBoxSectionId,
   SectionStatus,
 } from "@/lib/mini-box";
-import { SECTION_ORDER, deriveSectionStatus } from "@/lib/mini-box";
+import {
+  BUILD_SECTION_ORDER,
+  deriveSectionStatus,
+} from "@/lib/mini-box";
 
 const statusIcon = (status: SectionStatus) => {
   switch (status) {
@@ -27,18 +31,49 @@ const statusIcon = (status: SectionStatus) => {
   }
 };
 
+function StagePill({
+  label,
+  sub,
+  active,
+  onClick,
+}: {
+  label: string;
+  sub: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`mb-2 w-full rounded-full border px-3.5 py-2 text-left text-xs transition ${
+        active
+          ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+          : "border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-strong)] hover:text-[var(--text-muted)]"
+      }`}
+    >
+      <span className="font-medium">{label}</span>
+      <span className="ml-1.5 uppercase tracking-wide opacity-70">{sub}</span>
+    </button>
+  );
+}
+
 export function SectionNav({
   document,
   activeId,
   onSelect,
+  onPublish,
+  publishing,
 }: {
   document: MiniBoxDocument;
   activeId: MiniBoxSectionId;
   onSelect: (id: MiniBoxSectionId) => void;
+  onPublish: () => void;
+  publishing?: boolean;
 }) {
-  const items = useMemo(
+  const buildItems = useMemo(
     () =>
-      SECTION_ORDER.map((id) => {
+      BUILD_SECTION_ORDER.map((id) => {
         const section = document.sections[id];
         const status = deriveSectionStatus(document, id);
         return { id, label: section.label, status };
@@ -47,7 +82,7 @@ export function SectionNav({
   );
 
   return (
-    <div className="flex h-full w-[220px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-elevated)]">
+    <div className="flex h-full w-[240px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-elevated)]">
       <div className="border-b border-[var(--border)] px-4 py-3">
         <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
           Sections
@@ -56,8 +91,20 @@ export function SectionNav({
           {document.title || "Untitled Mini Box"}
         </div>
       </div>
-      <div className="flex-1 overflow-auto p-2 scrollbar-thin">
-        {items.map((item) => {
+
+      <div className="flex-1 overflow-auto p-3 scrollbar-thin">
+        <StagePill
+          label="Topic"
+          sub="Ideate"
+          active={activeId === "ideate"}
+          onClick={() => onSelect("ideate")}
+        />
+
+        <div className="mb-2 mt-1 px-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+          Build
+        </div>
+
+        {buildItems.map((item) => {
           const active = item.id === activeId;
           return (
             <button
@@ -75,43 +122,26 @@ export function SectionNav({
             </button>
           );
         })}
-      </div>
-    </div>
-  );
-}
 
-export function WorkflowTabs({
-  active = "build",
-}: {
-  active?: "topic" | "build" | "review" | "publish";
-}) {
-  const tabs = [
-    { id: "topic", label: "Topic", sub: "Ideate" },
-    { id: "build", label: "Build", sub: "Create" },
-    { id: "review", label: "Review", sub: "Review" },
-    { id: "publish", label: "Publish", sub: "Publish" },
-  ] as const;
+        <div className="mt-3 border-t border-[var(--border)] pt-3">
+          <StagePill
+            label="Review"
+            sub="Review"
+            active={activeId === "review"}
+            onClick={() => onSelect("review")}
+          />
 
-  return (
-    <div className="flex items-center gap-2">
-      {tabs.map((tab) => {
-        const isActive = tab.id === active;
-        return (
-          <div
-            key={tab.id}
-            className={`rounded-full border px-3.5 py-1.5 text-xs ${
-              isActive
-                ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
-                : "border-[var(--border)] text-[var(--text-dim)]"
-            }`}
+          <button
+            type="button"
+            onClick={onPublish}
+            disabled={publishing}
+            className="mt-1 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent-strong)] px-3.5 py-2.5 text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-50"
           >
-            <span className="font-medium">{tab.label}</span>
-            <span className="ml-1.5 uppercase tracking-wide opacity-70">
-              {tab.sub}
-            </span>
-          </div>
-        );
-      })}
+            <Rocket size={14} />
+            {publishing ? "Publishing…" : "Publish"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -119,9 +149,12 @@ export function WorkflowTabs({
 export function StatusPill({ status }: { status: SectionStatus | string }) {
   const map: Record<string, string> = {
     empty: "border-[var(--border)] text-[var(--text-dim)]",
-    draft: "border-[var(--warning)]/40 bg-[var(--warning)]/10 text-[var(--warning)]",
-    ready: "border-[var(--success)]/40 bg-[var(--success)]/10 text-[var(--success)]",
-    error: "border-[var(--danger)]/40 bg-[var(--danger-soft)] text-[var(--danger)]",
+    draft:
+      "border-[var(--warning)]/40 bg-[var(--warning)]/10 text-[var(--warning)]",
+    ready:
+      "border-[var(--success)]/40 bg-[var(--success)]/10 text-[var(--success)]",
+    error:
+      "border-[var(--danger)]/40 bg-[var(--danger-soft)] text-[var(--danger)]",
   };
   return (
     <span

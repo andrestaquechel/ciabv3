@@ -84,7 +84,7 @@ export function TopicArticlesEditor({
     <div className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-[var(--border)] px-5 py-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-base font-medium">Topic & Articles</h2>
+          <h2 className="text-base font-medium">Topics & Articles</h2>
           <StatusPill status={status} />
         </div>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
