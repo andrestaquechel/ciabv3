@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import type { MiniBoxDocument } from "@/lib/mini-box";
-import { buildMiniBoxPptx, pptxFilename } from "@/lib/pptx/mini-box";
+import {
+  buildMiniBoxFromTemplate,
+  pptxFilename,
+} from "@/lib/pptx/template-export";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,11 +18,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const pptx = await buildMiniBoxPptx(body.document);
-    const output = (await pptx.write({
-      outputType: "nodebuffer",
-    })) as Buffer;
-
+    const output = await buildMiniBoxFromTemplate(body.document);
     const filename = pptxFilename(body.document);
 
     return new NextResponse(new Uint8Array(output), {

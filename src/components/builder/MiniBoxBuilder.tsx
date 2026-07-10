@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import {
   createEmptyMiniBox,
   type MiniBoxDocument,
@@ -147,29 +147,14 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
   return (
     <AppShell
       topBar={
-        <header className="flex h-14 items-center justify-between gap-4 border-b border-[var(--border)] px-5">
-          <div className="min-w-0">
-            <div className="truncate text-sm">
-              <span className="text-[var(--text-muted)]">Mini Box</span>
-              <span className="mx-2 text-[var(--text-dim)]">/</span>
-              <span className="font-medium">
-                {document.title || "Untitled"}
-              </span>
-            </div>
+        <header className="flex h-14 items-center border-b border-[var(--border)] px-5">
+          <div className="truncate text-sm">
+            <span className="text-[var(--text-muted)]">Mini Box</span>
+            <span className="mx-2 text-[var(--text-dim)]">/</span>
+            <span className="font-medium">
+              {document.title || "Untitled"}
+            </span>
           </div>
-          <button
-            type="button"
-            onClick={() => void publish()}
-            disabled={publishing}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent-strong)] px-3.5 py-2 text-sm font-medium text-white hover:brightness-110 disabled:opacity-50"
-          >
-            {publishing ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Download size={14} />
-            )}
-            Download PPTX
-          </button>
         </header>
       }
     >

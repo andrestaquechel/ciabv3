@@ -5,8 +5,8 @@ const googleScopes = [
   "openid",
   "email",
   "profile",
-  "https://www.googleapis.com/auth/presentations",
-  "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/presentations.readonly",
 ].join(" ");
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
