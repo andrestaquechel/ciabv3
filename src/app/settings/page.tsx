@@ -60,7 +60,8 @@ export default function SettingsPage() {
         </header>
       }
     >
-      <div className="mx-auto max-w-2xl space-y-4 p-6">
+      <div className="h-full overflow-y-auto scrollbar-thin">
+        <div className="mx-auto max-w-2xl space-y-4 p-6 pb-12">
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
           <h2 className="text-base font-medium">Account</h2>
           {session?.user ? (
@@ -176,6 +177,7 @@ export default function SettingsPage() {
             preview and download. The live preview renders the same file you
             export.
           </p>
+        </div>
         </div>
       </div>
     </AppShell>
