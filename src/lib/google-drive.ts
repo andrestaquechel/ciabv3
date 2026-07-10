@@ -81,35 +81,77 @@ export type DriveFolder = {
   modifiedTime?: string;
 };
 
-export async function getFolderInfo(folderId: string): Promise<DriveFolder> {
+export type DriveBrowseScope =
+  | { kind: "my-drive"; parentId: string }
+  | { kind: "shared-with-me"; parentId?: string }
+  | { kind: "shared-drive"; driveId: string; parentId: string };
+
+export type DrivePreviewItem = {
+  id: string;
+  name: string;
+  mimeType: string;
+  modifiedTime?: string;
+  webViewLink?: string;
+  isFolder: boolean;
+};
+
+export async function listSharedDrives(): Promise<Array<{ id: string; name: string }>> {
   const drive = await getDriveClient();
-  const res = await drive.files.get({
-    fileId: folderId,
-    fields: "id, name, webViewLink, modifiedTime",
-    supportsAllDrives: true,
-  });
-  if (!res.data.id || !res.data.name) {
-    throw new Error("Folder not found.");
-  }
-  return {
-    id: res.data.id,
-    name: res.data.name,
-    webViewLink: res.data.webViewLink ?? undefined,
-    modifiedTime: res.data.modifiedTime ?? undefined,
-  };
+  const drives: Array<{ id: string; name: string }> = [];
+  let pageToken: string | undefined;
+
+  do {
+    const res = await drive.drives.list({
+      pageSize: 100,
+      pageToken,
+    });
+    for (const item of res.data.drives ?? []) {
+      if (item.id && item.name) {
+        drives.push({ id: item.id, name: item.name });
+      }
+    }
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+
+  return drives;
 }
 
-export async function listDriveFolders(parentId = "root"): Promise<DriveFolder[]> {
+function folderMimeType() {
+  return "application/vnd.google-apps.folder";
+}
+
+export async function listDriveFolders(
+  scope: DriveBrowseScope,
+): Promise<DriveFolder[]> {
   const drive = await getDriveClient();
-  const parent =
-    parentId === "root" ? "'root' in parents" : `'${parentId}' in parents`;
-  const q = `mimeType='application/vnd.google-apps.folder' and trashed=false and ${parent}`;
   const folders: DriveFolder[] = [];
   let pageToken: string | undefined;
+
+  let q: string;
+  let driveId: string | undefined;
+  let corpora: string | undefined;
+
+  switch (scope.kind) {
+    case "my-drive":
+      q = `mimeType='${folderMimeType()}' and trashed=false and '${scope.parentId}' in parents`;
+      break;
+    case "shared-with-me":
+      q = scope.parentId
+        ? `mimeType='${folderMimeType()}' and trashed=false and '${scope.parentId}' in parents`
+        : `sharedWithMe=true and mimeType='${folderMimeType()}' and trashed=false`;
+      break;
+    case "shared-drive":
+      driveId = scope.driveId;
+      corpora = "drive";
+      q = `mimeType='${folderMimeType()}' and trashed=false and '${scope.parentId === "root" ? scope.driveId : scope.parentId}' in parents`;
+      break;
+  }
 
   do {
     const res = await drive.files.list({
       q,
+      corpora,
+      driveId,
       fields:
         "nextPageToken, files(id, name, webViewLink, modifiedTime)",
       pageSize: 100,
@@ -134,6 +176,59 @@ export async function listDriveFolders(parentId = "root"): Promise<DriveFolder[]
   } while (pageToken);
 
   return folders;
+}
+
+export async function previewFolderContents(folderId: string, limit = 30) {
+  const drive = await getDriveClient();
+  const res = await drive.files.list({
+    q: `'${folderId}' in parents and trashed=false`,
+    fields:
+      "nextPageToken, files(id, name, mimeType, modifiedTime, webViewLink)",
+    pageSize: limit,
+    orderBy: "folder,name,modifiedTime desc",
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+
+  const items: DrivePreviewItem[] = (res.data.files ?? [])
+    .filter(
+      (f): f is typeof f & { id: string; name: string; mimeType: string } =>
+        !!f.id && !!f.name && !!f.mimeType,
+    )
+    .map((f) => ({
+      id: f.id,
+      name: f.name,
+      mimeType: f.mimeType,
+      modifiedTime: f.modifiedTime ?? undefined,
+      webViewLink: f.webViewLink ?? undefined,
+      isFolder: f.mimeType === folderMimeType(),
+    }));
+
+  return {
+    items,
+    shown: items.length,
+    hasMore: !!res.data.nextPageToken,
+    folderCount: items.filter((i) => i.isFolder).length,
+    fileCount: items.filter((i) => !i.isFolder).length,
+  };
+}
+
+export async function getFolderInfo(folderId: string): Promise<DriveFolder> {
+  const drive = await getDriveClient();
+  const res = await drive.files.get({
+    fileId: folderId,
+    fields: "id, name, webViewLink, modifiedTime",
+    supportsAllDrives: true,
+  });
+  if (!res.data.id || !res.data.name) {
+    throw new Error("Folder not found.");
+  }
+  return {
+    id: res.data.id,
+    name: res.data.name,
+    webViewLink: res.data.webViewLink ?? undefined,
+    modifiedTime: res.data.modifiedTime ?? undefined,
+  };
 }
 
 export async function exportFileText(fileId: string, mimeType: string) {
