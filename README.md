@@ -1,36 +1,61 @@
 # Box Studio / CIABv2
 
-Build **Mini Box** (and later CIAB) content with topic + article inputs, AI drafts, Giphy, local render preview, and Google Slides sync.
+Build **Mini Box** content with Ideate → Topics & Articles → sections → Review → Publish.
 
-## Live app
+**Live:** https://ciabv2-gilt.vercel.app  
+**Repo:** https://github.com/seeing-in-color/CIABv2  
 
-After deploy, Vercel URL will be in the project dashboard. GitHub pushes to `main` auto-deploy.
+Pushes to `main` auto-deploy via GitHub Actions → Vercel.
 
-## Local / Vercel env
+## Left nav flow
 
-Copy `.env.example` → `.env.local` (local) or set in Vercel Project Settings → Environment Variables:
+1. **Topic IDEATE** — brainstorm + AI topic suggestions  
+2. **Topics & Articles** → Cover → Welcome → One-Pager → Chat  
+3. **Review REVIEW** — checklist of all sections  
+4. **Publish** button — sync to Google Slides (needs OAuth)
 
-| Variable | Required | Notes |
-|----------|----------|-------|
-| `AUTH_SECRET` | Yes | `openssl rand -base64 32` |
-| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | For Slides sync | OAuth web client |
-| `AUTH_URL` | Yes on Vercel | Your `https://….vercel.app` URL |
-| `GIPHY_API_KEY` | Recommended | Live GIF search |
-| `OPENAI_API_KEY` | Optional | Live AI (mock works without) |
-| `MINI_BOX_TEMPLATE_ID` | For Slides copy | Upload `templates/mini-box-master.pptx` to Google Slides and paste the presentation ID |
+## Google OAuth setup (fixes `invalid_client`)
 
-Google OAuth redirect URI (production):
+That error means Client ID/Secret are missing or wrong in Vercel.
 
-`https://YOUR_DOMAIN/api/auth/callback/google`
+### 1. Google Cloud project
+1. [Google Cloud Console](https://console.cloud.google.com/) → create/select a project  
+2. Enable **Google Slides API** + **Google Drive API**
 
-## Template
+### 2. OAuth consent screen
+1. **APIs & Services → OAuth consent screen**  
+2. External (or Internal for Workspace)  
+3. Add yourself as a **test user** while status is Testing  
+4. Scopes: `presentations` + `drive.file`
 
-`templates/mini-box-master.pptx` is the Mini Box master (from the “When AI Follows the Wrong Instructions” example). Upload to Drive → Open with Google Slides → set `MINI_BOX_TEMPLATE_ID`.
+### 3. Create Web OAuth client
+1. **Credentials → Create credentials → OAuth client ID**  
+2. Type: **Web application**  
+3. **Authorized JavaScript origins**
+   - `https://ciabv2-gilt.vercel.app`
+4. **Authorized redirect URIs**
+   - `https://ciabv2-gilt.vercel.app/api/auth/callback/google`
+5. Copy **Client ID** + **Client Secret**
 
-## Scripts
+### 4. Add env vars in Vercel
+Project → Settings → Environment Variables (Production + Preview):
 
-```bash
-npm install
-npm run dev
-npm run build
-```
+| Name | Value |
+|------|--------|
+| `AUTH_GOOGLE_ID` | your Client ID |
+| `AUTH_GOOGLE_SECRET` | your Client Secret |
+| `AUTH_URL` | `https://ciabv2-gilt.vercel.app` |
+
+Redeploy (or push any commit). Then use **Connect Google** on the site.
+
+### 5. Template for Publish
+1. Upload `templates/mini-box-master.pptx` to Drive → Open with Google Slides  
+2. Set `MINI_BOX_TEMPLATE_ID` to the ID in the Slides URL  
+
+## Other env
+
+| Variable | Notes |
+|----------|-------|
+| `AUTH_SECRET` | Already set on Vercel |
+| `GIPHY_API_KEY` | Already set |
+| `OPENAI_API_KEY` | Optional for live AI |
