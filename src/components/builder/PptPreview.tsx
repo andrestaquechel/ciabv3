@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import type { MiniBoxDocument, MiniBoxSectionId } from "@/lib/mini-box";
+import type { Presentation } from "pptx-viewer";
 
 const SLIDE_LABELS = [
   "Cover",
@@ -23,86 +24,6 @@ function sectionToSlideIndex(section: MiniBoxSectionId): number {
   return 0;
 }
 
-type PreviewData = {
-  slides: string[][];
-  gifs: { welcome: string | null; onePager: string | null; chat: string | null };
-};
-
-function TemplateSlide({
-  slideIndex,
-  blocks,
-  gifUrl,
-}: {
-  slideIndex: number;
-  blocks: string[];
-  gifUrl?: string | null;
-}) {
-  const isDivider = slideIndex === 2 || slideIndex === 5;
-  const isCover = slideIndex === 0;
-
-  return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-white text-[#1a1a1a] shadow-inner">
-      {/* Living Security template chrome */}
-      <div className="absolute left-0 top-0 h-full w-1 bg-[#6B2D5C]" />
-      <div className="absolute left-0 right-0 top-0 h-1 bg-gradient-to-r from-[#6B2D5C] via-[#8B3A72] to-[#C4A574]" />
-
-      {isDivider ? (
-        <div className="flex h-full items-center justify-center px-8">
-          <h3 className="text-3xl font-semibold tracking-tight text-[#2d2d2d]">
-            {blocks[0] || SLIDE_LABELS[slideIndex]}
-          </h3>
-        </div>
-      ) : isCover ? (
-        <div className="flex h-full flex-col justify-center px-10 py-8">
-          <div className="text-xs font-semibold uppercase tracking-[0.25em] text-[#6B2D5C]">
-            Mini Box
-          </div>
-          <h3 className="mt-4 text-2xl font-bold leading-tight text-[#1a1a1a]">
-            {blocks[0] || "Topic title"}
-          </h3>
-          <div className="mt-8 space-y-1 text-sm text-[#555]">
-            {(blocks[1] || "Welcome Message for Program Owners\nOne-Pager\nChat")
-              .split("\n")
-              .map((line) => (
-                <div key={line}>{line}</div>
-              ))}
-          </div>
-        </div>
-      ) : (
-        <div className="flex h-full gap-4 px-8 py-6">
-          <div className="min-w-0 flex-1 overflow-auto scrollbar-thin">
-            {blocks.map((block, i) => (
-              <p
-                key={i}
-                className={`whitespace-pre-wrap leading-relaxed ${
-                  i === 0 && slideIndex !== 7
-                    ? "mb-3 text-sm font-semibold text-[#6B2D5C]"
-                    : "mb-2 text-[13px] text-[#333]"
-                }`}
-              >
-                {block}
-              </p>
-            ))}
-          </div>
-          {gifUrl && (
-            <div className="w-[28%] shrink-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={gifUrl}
-                alt=""
-                className="h-full max-h-40 w-full rounded object-cover"
-              />
-              <div className="mt-1 text-center text-[10px] text-[#888]">
-                Via Giphy
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function PptPreview({
   document,
   activeSection,
@@ -111,8 +32,11 @@ export function PptPreview({
   activeSection: MiniBoxSectionId;
 }) {
   const [index, setIndex] = useState(0);
-  const [preview, setPreview] = useState<PreviewData | null>(null);
+  const [presentation, setPresentation] = useState<Presentation | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const slideHostRef = useRef<HTMLDivElement>(null);
+  const containerWidthRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setIndex(sectionToSlideIndex(activeSection));
@@ -121,6 +45,7 @@ export function PptPreview({
   useEffect(() => {
     const timer = setTimeout(async () => {
       setLoading(true);
+      setError(null);
       try {
         const res = await fetch("/api/pptx/preview", {
           method: "POST",
@@ -128,7 +53,20 @@ export function PptPreview({
           body: JSON.stringify({ document }),
         });
         const data = await res.json();
-        if (res.ok) setPreview(data);
+        if (!res.ok) throw new Error(data.error || "Preview failed");
+
+        const binary = atob(data.pptxBase64 as string);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+
+        const { loadPresentation } = await import("pptx-viewer");
+        const loaded = await loadPresentation(bytes.buffer);
+        setPresentation(loaded.presentation);
+      } catch (err) {
+        setPresentation(null);
+        setError(err instanceof Error ? err.message : "Preview failed");
       } finally {
         setLoading(false);
       }
@@ -136,15 +74,18 @@ export function PptPreview({
     return () => clearTimeout(timer);
   }, [document]);
 
-  const gifForSlide = useMemo(() => {
-    if (!preview) return null;
-    if (index === 1) return preview.gifs.welcome;
-    if (index === 3) return preview.gifs.onePager;
-    if (index === 6) return preview.gifs.chat;
-    return null;
-  }, [preview, index]);
+  useEffect(() => {
+    if (!presentation || !slideHostRef.current) return;
 
-  const blocks = preview?.slides[index] ?? [];
+    const host = slideHostRef.current;
+    host.innerHTML = "";
+
+    void (async () => {
+      const { renderSlideToElement } = await import("pptx-viewer");
+      const width = containerWidthRef.current?.clientWidth ?? 960;
+      renderSlideToElement(presentation, index, host, { width });
+    })();
+  }, [presentation, index]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)]">
@@ -162,7 +103,7 @@ export function PptPreview({
           <button
             type="button"
             onClick={() => setIndex((i) => Math.max(0, i - 1))}
-            disabled={index === 0}
+            disabled={index === 0 || loading}
             className="rounded-lg border border-[var(--border)] p-1.5 text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30"
           >
             <ChevronLeft size={14} />
@@ -170,7 +111,7 @@ export function PptPreview({
           <button
             type="button"
             onClick={() => setIndex((i) => Math.min(6, i + 1))}
-            disabled={index === 6}
+            disabled={index === 6 || loading}
             className="rounded-lg border border-[var(--border)] p-1.5 text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30"
           >
             <ChevronRight size={14} />
@@ -178,11 +119,24 @@ export function PptPreview({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 items-center justify-center bg-[#ececec] p-4">
-        <TemplateSlide
-          slideIndex={index}
-          blocks={blocks}
-          gifUrl={gifForSlide}
+      <div
+        ref={containerWidthRef}
+        className="relative flex min-h-0 flex-1 items-center justify-center bg-[#ececec] p-4"
+      >
+        {error && (
+          <p className="absolute inset-x-4 top-4 z-10 rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-xs text-[var(--danger)]">
+            {error}
+          </p>
+        )}
+        {loading && !presentation && (
+          <div className="flex items-center gap-2 text-sm text-[var(--text-dim)]">
+            <Loader2 size={16} className="animate-spin" />
+            Building preview from master template…
+          </div>
+        )}
+        <div
+          ref={slideHostRef}
+          className="w-full max-w-full [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
         />
       </div>
 

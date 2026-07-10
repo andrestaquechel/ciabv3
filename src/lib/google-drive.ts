@@ -74,6 +74,68 @@ export async function listFolderFiles(folderId: string) {
   return files;
 }
 
+export type DriveFolder = {
+  id: string;
+  name: string;
+  webViewLink?: string;
+  modifiedTime?: string;
+};
+
+export async function getFolderInfo(folderId: string): Promise<DriveFolder> {
+  const drive = await getDriveClient();
+  const res = await drive.files.get({
+    fileId: folderId,
+    fields: "id, name, webViewLink, modifiedTime",
+    supportsAllDrives: true,
+  });
+  if (!res.data.id || !res.data.name) {
+    throw new Error("Folder not found.");
+  }
+  return {
+    id: res.data.id,
+    name: res.data.name,
+    webViewLink: res.data.webViewLink ?? undefined,
+    modifiedTime: res.data.modifiedTime ?? undefined,
+  };
+}
+
+export async function listDriveFolders(parentId = "root"): Promise<DriveFolder[]> {
+  const drive = await getDriveClient();
+  const parent =
+    parentId === "root" ? "'root' in parents" : `'${parentId}' in parents`;
+  const q = `mimeType='application/vnd.google-apps.folder' and trashed=false and ${parent}`;
+  const folders: DriveFolder[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const res = await drive.files.list({
+      q,
+      fields:
+        "nextPageToken, files(id, name, webViewLink, modifiedTime)",
+      pageSize: 100,
+      pageToken,
+      orderBy: "name",
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+    const batch = (res.data.files ?? [])
+      .filter(
+        (f): f is typeof f & { id: string; name: string } =>
+          !!f.id && !!f.name,
+      )
+      .map((f) => ({
+        id: f.id,
+        name: f.name,
+        webViewLink: f.webViewLink ?? undefined,
+        modifiedTime: f.modifiedTime ?? undefined,
+      }));
+    folders.push(...batch);
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+
+  return folders;
+}
+
 export async function exportFileText(fileId: string, mimeType: string) {
   const drive = await getDriveClient();
 

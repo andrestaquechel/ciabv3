@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
 import { AppShell } from "@/components/layout/AppShell";
+import { DriveFolderPicker } from "@/components/knowledge/DriveFolderPicker";
 import {
   getFolderConfig,
   setFolderConfig,
@@ -19,10 +20,17 @@ type DriveFile = {
   webViewLink?: string;
 };
 
+type DriveFolder = {
+  id: string;
+  name: string;
+  webViewLink?: string;
+};
+
 export default function KnowledgePage() {
   const { data: session, status } = useSession();
   const [boxType, setBoxType] = useState<BoxType>("mini-box");
   const [folderInput, setFolderInput] = useState("");
+  const [showPicker, setShowPicker] = useState(false);
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [question, setQuestion] = useState("");
@@ -63,21 +71,47 @@ export default function KnowledgePage() {
     }
   }
 
-  function saveFolder() {
+  function applyFolder(folder: DriveFolder) {
+    setFolderConfig(boxType, {
+      folderId: folder.id,
+      folderUrl:
+        folder.webViewLink ??
+        `https://drive.google.com/drive/folders/${folder.id}`,
+      folderName: folder.name,
+      setAt: new Date().toISOString(),
+    });
+    setFolderInput("");
+    setShowPicker(false);
+    setError(null);
+    setRefreshKey((k) => k + 1);
+    if (session?.accessToken) void loadFiles(folder.id);
+  }
+
+  function saveFolderFromUrl() {
     const folderId = parseDriveFolderId(folderInput);
     if (!folderId) {
       setError("Paste a valid Google Drive folder link or ID.");
       return;
     }
-    setFolderConfig(boxType, {
-      folderId,
-      folderUrl: folderInput.trim(),
-      setAt: new Date().toISOString(),
-    });
-    setFolderInput("");
-    setError(null);
-    setRefreshKey((k) => k + 1);
-    if (session?.accessToken) void loadFiles(folderId);
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/drive/folders?folderId=${encodeURIComponent(folderId)}&info=1`,
+        );
+        const data = await res.json();
+        if (res.ok && data.folder) {
+          applyFolder(data.folder);
+          return;
+        }
+      } catch {
+        // fall through to URL-only save
+      }
+      applyFolder({
+        id: folderId,
+        name: "Drive folder",
+        webViewLink: folderInput.trim(),
+      });
+    })();
   }
 
   async function ask() {
@@ -104,6 +138,11 @@ export default function KnowledgePage() {
       setAsking(false);
     }
   }
+
+  const folderLabel =
+    folderConfig?.folderName ||
+    folderConfig?.folderUrl?.replace(/.*\/folders\//, "Folder ") ||
+    "Archive folder";
 
   return (
     <AppShell
@@ -145,36 +184,71 @@ export default function KnowledgePage() {
                 Connect Google
               </button>
             </div>
-          ) : !folderConfig ? (
-            <div className="mx-auto max-w-lg flex-1 p-8">
+          ) : !folderConfig || showPicker ? (
+            <div className="mx-auto max-w-lg flex-1 overflow-auto p-8 scrollbar-thin">
               <h2 className="text-lg font-medium">
-                Set {boxType === "mini-box" ? "Mini Box" : "CIAB"} folder
+                {folderConfig ? "Change" : "Set"}{" "}
+                {boxType === "mini-box" ? "Mini Box" : "CIAB"} archive folder
               </h2>
               <p className="mt-2 text-sm text-[var(--text-muted)]">
-                Paste a Google Drive folder link. This becomes the default for
-                this box type (change later in Settings).
+                Browse your Google Drive folders or paste a folder link. This
+                becomes the default archive for this box type.
               </p>
+
+              <div className="mt-5">
+                <DriveFolderPicker onSelect={applyFolder} />
+              </div>
+
+              <div className="my-5 flex items-center gap-3 text-xs text-[var(--text-dim)]">
+                <div className="h-px flex-1 bg-[var(--border)]" />
+                or paste a link
+                <div className="h-px flex-1 bg-[var(--border)]" />
+              </div>
+
               <input
                 value={folderInput}
                 onChange={(e) => setFolderInput(e.target.value)}
                 placeholder="https://drive.google.com/drive/folders/…"
-                className="mt-4 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 text-sm"
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 text-sm"
               />
               {error && (
                 <p className="mt-2 text-sm text-[var(--danger)]">{error}</p>
               )}
-              <button
-                type="button"
-                onClick={saveFolder}
-                className="mt-4 rounded-xl bg-[var(--accent-strong)] px-4 py-2 text-sm text-white"
-              >
-                Save folder
-              </button>
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  onClick={saveFolderFromUrl}
+                  className="rounded-xl bg-[var(--accent-strong)] px-4 py-2 text-sm text-white"
+                >
+                  Save folder
+                </button>
+                {folderConfig && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPicker(false);
+                      setError(null);
+                    }}
+                    className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <>
-              <div className="border-b border-[var(--border)] px-6 py-3 text-sm text-[var(--text-muted)]">
-                Connected folder · {files.length} files · edit path in Settings
+              <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-6 py-3 text-sm">
+                <span className="truncate text-[var(--text-muted)]">
+                  {folderLabel} · {files.length} files
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowPicker(true)}
+                  className="shrink-0 text-xs text-[var(--accent)] hover:underline"
+                >
+                  Change folder
+                </button>
               </div>
 
               <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-2">
