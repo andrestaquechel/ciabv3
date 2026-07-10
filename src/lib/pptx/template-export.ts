@@ -16,6 +16,31 @@ const GIF_SLOTS: Record<number, string> = {
   7: "ppt/media/image11.gif",
 };
 
+/** Divider slides (One-Pager, Chats) — title style from slideLayout3 */
+const DIVIDER_SLIDES = [3, 6] as const;
+
+const DIVIDER_TITLE_LST_STYLE =
+  '<a:lstStyle><a:lvl1pPr lvl="0"><a:spcBef><a:spcPts val="0"/></a:spcBef><a:spcAft><a:spcPts val="0"/></a:spcAft><a:buSzPts val="5600"/><a:buFont typeface="Inter Tight"/><a:buNone/><a:defRPr sz="5600"><a:latin typeface="Inter Tight"/><a:ea typeface="Inter Tight"/><a:cs typeface="Inter Tight"/><a:sym typeface="Inter Tight"/></a:defRPr></a:lvl1pPr></a:lstStyle>';
+
+const DIVIDER_TITLE_RUN_PR =
+  '<a:rPr lang="en" sz="5600"><a:latin typeface="Inter Tight"/><a:ea typeface="Inter Tight"/><a:cs typeface="Inter Tight"/><a:sym typeface="Inter Tight"/></a:rPr>';
+
+const DIVIDER_END_PARA_RPR =
+  '<a:endParaRPr sz="5600"><a:latin typeface="Inter Tight"/><a:ea typeface="Inter Tight"/><a:cs typeface="Inter Tight"/><a:sym typeface="Inter Tight"/></a:endParaRPr>';
+
+/** Divider slides ship with empty lstStyle; pptx-viewer falls back to default body size */
+export function fixDividerSlideTitleFormatting(slideXml: string): string {
+  if (!/<p:ph type="title"\/>/.test(slideXml)) return slideXml;
+
+  return slideXml
+    .replace(/<a:lstStyle\/>/, DIVIDER_TITLE_LST_STYLE)
+    .replace(
+      /<a:r><a:rPr lang="en"\/><a:t>([\s\S]*?)<\/a:t><\/a:r>/,
+      `<a:r>${DIVIDER_TITLE_RUN_PR}<a:t>$1</a:t></a:r>`,
+    )
+    .replace(/<a:endParaRPr\/>/, DIVIDER_END_PARA_RPR);
+}
+
 async function gifToBuffer(gif: GifSelection): Promise<Buffer | null> {
   if (!gif?.url && !gif?.previewUrl) return null;
   const url = gif.url || gif.previewUrl;
@@ -102,6 +127,12 @@ export async function buildMiniBoxFromTemplate(
   const templateBuf = await readFile(TEMPLATE_PATH);
   const zip = await JSZip.loadAsync(templateBuf);
   const replacements = buildReplacements(doc);
+
+  for (const slideNum of DIVIDER_SLIDES) {
+    const slidePath = `ppt/slides/slide${slideNum}.xml`;
+    const xml = await zip.file(slidePath)!.async("string");
+    zip.file(slidePath, fixDividerSlideTitleFormatting(xml));
+  }
 
   for (const [slideNumStr, shapeMap] of Object.entries(replacements)) {
     const slideNum = Number(slideNumStr);
