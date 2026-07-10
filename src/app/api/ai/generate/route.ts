@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import type { SourceArticle } from "@/lib/mini-box";
+import {
+  anthropicConfigured,
+  anthropicJson,
+  anthropicMissingKeyMessage,
+} from "@/lib/anthropic";
 
 type GenerateSectionId =
   | "title"
@@ -15,6 +20,7 @@ type GenerateBody = {
   context?: string;
   action?: "generate" | "shorten" | "warmer" | "sharper" | "concrete";
   currentText?: string;
+  model?: string;
 };
 
 function articleContext(articles?: SourceArticle[]) {
@@ -82,23 +88,19 @@ function mockGenerate(body: GenerateBody) {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as GenerateBody;
-    if (
-      !body.sectionId ||
-      body.sectionId === "review"
-    ) {
+    if (!body.sectionId || body.sectionId === "review") {
       return NextResponse.json(
         { error: "Pick a content section to generate." },
         { status: 400 },
       );
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
+    if (!anthropicConfigured()) {
       const mock = mockGenerate(body);
       return NextResponse.json({
         source: "mock",
         ...mock,
-        note: "Add OPENAI_API_KEY for live AI generation. Using Mini Box–style mock drafts for now.",
+        note: `${anthropicMissingKeyMessage()} Using Mini Box–style mock drafts for now.`,
       });
     }
 
@@ -117,36 +119,19 @@ Return a JSON object with keys matching the section fields:
 - onePager: { "greeting": string, "subjectLine": string, "bodyPart1": string, "callout": string, "bodyPart2": string }
 - chat: { "message": string }`;
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.7,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: userPrompt },
-        ],
-      }),
+    const fields = await anthropicJson<Record<string, string>>({
+      system,
+      user: userPrompt,
+      temperature: 0.7,
+      model: body.model,
     });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`OpenAI error: ${res.status} ${errText}`);
-    }
-
-    const data = (await res.json()) as {
-      choices: Array<{ message: { content: string } }>;
-    };
-    const fields = JSON.parse(
-      data.choices[0]?.message?.content || "{}",
-    ) as Record<string, string>;
-
-    return NextResponse.json({ source: "openai", fields, text: "" });
+    return NextResponse.json({
+      source: "anthropic",
+      model: body.model,
+      fields,
+      text: "",
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "AI generation failed.";

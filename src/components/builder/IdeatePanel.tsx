@@ -5,6 +5,9 @@ import { Loader2, Sparkles } from "lucide-react";
 import type { MiniBoxDocument } from "@/lib/mini-box";
 import { deriveSectionStatus } from "@/lib/mini-box";
 import { StatusPill } from "@/components/builder/SectionNav";
+import { ClaudeModelSelect } from "@/components/builder/ClaudeModelSelect";
+import { loadSectionModelPreference } from "@/lib/box-store";
+import { claudeModelLabel } from "@/lib/claude-models";
 
 export function IdeatePanel({
   document,
@@ -83,12 +86,16 @@ export function IdeatePanel({
           kind: "topics",
           topic: document.topic,
           articles: document.articles,
+          model: loadSectionModelPreference("title"),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Suggestion failed");
       setTopics(data.topics || []);
       if (data.note) setNote(data.note);
+      else if (data.source === "anthropic" && data.model) {
+        setNote(`Suggested with ${claudeModelLabel(data.model)}.`);
+      }
     } catch (err) {
       setNote(err instanceof Error ? err.message : "Suggestion failed");
     } finally {
@@ -138,21 +145,28 @@ export function IdeatePanel({
           />
         </label>
 
-        <button
-          type="button"
-          disabled={suggesting}
-          onClick={() => void suggestTopics()}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] px-3 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
-        >
-          {suggesting ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : (
-            <Sparkles size={13} />
-          )}
-          Suggest topics
-        </button>
-
-        {note && <p className="text-[11px] text-[var(--text-dim)]">{note}</p>}
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+              AI research
+            </div>
+            <ClaudeModelSelect sectionId="title" />
+          </div>
+          <button
+            type="button"
+            disabled={suggesting}
+            onClick={() => void suggestTopics()}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] px-3 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
+          >
+            {suggesting ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Sparkles size={13} />
+            )}
+            Suggest topics
+          </button>
+          {note && <p className="mt-3 text-[11px] text-[var(--text-dim)]">{note}</p>}
+        </div>
 
         {topics.length > 0 && (
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-4">

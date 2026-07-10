@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { parseDriveFolderId } from "@/lib/google-drive";
 import type { IndexedDocument } from "@/lib/knowledge-cache";
+import {
+  anthropicConfigured,
+  anthropicText,
+  anthropicMissingKeyMessage,
+} from "@/lib/anthropic";
 
 type Body = {
   question: string;
@@ -53,9 +58,8 @@ export async function POST(request: Request) {
     }
 
     const context = buildContext(indexed);
-    const apiKey = process.env.OPENAI_API_KEY;
 
-    if (!apiKey) {
+    if (!anthropicConfigured()) {
       const q = body.question.toLowerCase();
       const terms = q.split(/\s+/).filter((t) => t.length > 3);
       const matches = indexed.filter((d) =>
@@ -68,40 +72,21 @@ export async function POST(request: Request) {
       );
       return NextResponse.json({
         source: "mock",
-        answer: `Searched ${indexed.length} indexed documents. Name/content matches: ${matches.slice(0, 8).map((m) => m.path || m.name).join(", ") || "none"}. Add OPENAI_API_KEY for full answers.`,
+        answer: `Searched ${indexed.length} indexed documents. Name/content matches: ${matches.slice(0, 8).map((m) => m.path || m.name).join(", ") || "none"}. ${anthropicMissingKeyMessage()}`,
         fileCount: indexed.length,
         matchCount: matches.length,
       });
     }
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.2,
-        messages: [
-          {
-            role: "system",
-            content: `You answer questions about Living Security ${body.boxType === "ciab" ? "Campaign in a Box (CIAB)" : "Mini Box"} content from an indexed Google Drive archive. Cite specific file names and paths when relevant. If nothing matches, say so clearly. Today is ${new Date().toISOString().slice(0, 10)}.`,
-          },
-          {
-            role: "user",
-            content: `Question: ${body.question}\n\nIndexed archive (${indexed.length} documents):\n${context}`,
-          },
-        ],
-      }),
+    const answer = await anthropicText({
+      system: `You answer questions about Living Security ${body.boxType === "ciab" ? "Campaign in a Box (CIAB)" : "Mini Box"} content from an indexed Google Drive archive. Cite specific file names and paths when relevant. If nothing matches, say so clearly. Today is ${new Date().toISOString().slice(0, 10)}.`,
+      user: `Question: ${body.question}\n\nIndexed archive (${indexed.length} documents):\n${context}`,
+      temperature: 0.2,
+      maxTokens: 4096,
     });
 
-    if (!res.ok) throw new Error(`OpenAI error: ${res.status}`);
-    const data = await res.json();
-    const answer = data.choices?.[0]?.message?.content ?? "No answer.";
-
     return NextResponse.json({
-      source: "openai",
+      source: "anthropic",
       answer,
       fileCount: indexed.length,
     });

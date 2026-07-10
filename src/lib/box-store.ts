@@ -3,6 +3,11 @@ import {
   createEmptyMiniBox,
   type MiniBoxDocument,
 } from "@/lib/mini-box";
+import type { AiSectionId } from "@/lib/claude-models";
+import {
+  DEFAULT_CLAUDE_MODEL,
+  isValidClaudeModel,
+} from "@/lib/claude-models";
 
 export type BoxKind = "mini-box" | "ciab";
 
@@ -105,6 +110,7 @@ export function boxKindLabel(kind: BoxKind) {
 
 export const SYNC_PREVIEW_KEY = "box-studio:sync-preview";
 export const PREVIEW_SPLIT_KEY = "box-studio:preview-split";
+export const SECTION_MODELS_KEY = "box-studio:section-models";
 
 export function loadSyncPreviewPreference(): boolean {
   if (typeof window === "undefined") return true;
@@ -127,4 +133,30 @@ export function loadPreviewSplitPreference(): number {
 
 export function savePreviewSplitPreference(percent: number) {
   localStorage.setItem(PREVIEW_SPLIT_KEY, String(percent));
+}
+
+function readSectionModels(): Partial<Record<AiSectionId, string>> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(SECTION_MODELS_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Partial<Record<AiSectionId, string>>;
+  } catch {
+    return {};
+  }
+}
+
+export function loadSectionModelPreference(sectionId: AiSectionId): string {
+  const stored = readSectionModels()[sectionId];
+  if (stored && isValidClaudeModel(stored)) return stored;
+  return DEFAULT_CLAUDE_MODEL;
+}
+
+export function saveSectionModelPreference(
+  sectionId: AiSectionId,
+  model: string,
+) {
+  if (!isValidClaudeModel(model)) return;
+  const next = { ...readSectionModels(), [sectionId]: model };
+  localStorage.setItem(SECTION_MODELS_KEY, JSON.stringify(next));
 }

@@ -17,6 +17,9 @@ import type {
 import { NAV_SECTION_LABELS, deriveSectionStatus } from "@/lib/mini-box";
 import { GifPicker } from "@/components/builder/GifPicker";
 import { StatusPill } from "@/components/builder/SectionNav";
+import { ClaudeModelSelect } from "@/components/builder/ClaudeModelSelect";
+import { loadSectionModelPreference } from "@/lib/box-store";
+import { claudeModelLabel } from "@/lib/claude-models";
 
 type EditorSectionId = "welcome" | "onePagerP1" | "onePagerP2" | "chat";
 type AiAction = "generate" | "shorten" | "warmer" | "sharper" | "concrete";
@@ -147,6 +150,7 @@ export function SectionEditor({
           articles: document.articles,
           action,
           currentText,
+          model: loadSectionModelPreference(sectionId),
         }),
       });
       const data = await res.json();
@@ -171,6 +175,9 @@ export function SectionEditor({
         if (sectionId === "chat") patchChat({ message: data.text });
       }
       if (data.note) setAiNote(data.note);
+      else if (data.source === "anthropic" && data.model) {
+        setAiNote(`Generated with ${claudeModelLabel(data.model)}.`);
+      }
     } catch (err) {
       setAiNote(err instanceof Error ? err.message : "AI failed");
     } finally {
@@ -200,13 +207,16 @@ export function SectionEditor({
 
       <div className="flex-1 overflow-auto p-5 scrollbar-thin">
         <div className="mb-5 rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-4">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
               AI draft
             </div>
-            {aiLoading && (
-              <Loader2 size={14} className="animate-spin text-[var(--accent)]" />
-            )}
+            <div className="flex items-center gap-2">
+              <ClaudeModelSelect sectionId={sectionId} />
+              {aiLoading && (
+                <Loader2 size={14} className="animate-spin text-[var(--accent)]" />
+              )}
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             {aiButtons.map((btn) => (

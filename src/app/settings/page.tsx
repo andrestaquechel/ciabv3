@@ -171,6 +171,40 @@ export default function SettingsPage() {
         </div>
 
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
+          <h2 className="text-base font-medium">AI (Anthropic Claude)</h2>
+          <p className="mt-2 text-sm text-[var(--text-muted)]">
+            AI generate, topic research, and Knowledge Base Q&amp;A use{" "}
+            <strong className="font-medium text-[var(--text)]">Anthropic Claude</strong>{" "}
+            via a server-side API key — not stored in the browser. In the builder,
+            each section tab has its own Claude model dropdown (saved in this browser).
+          </p>
+          <div className="mt-4 space-y-3 text-sm text-[var(--text-muted)]">
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+                Local development
+              </div>
+              <p className="mt-1">
+                Add to <code className="text-[var(--text)]">.env.local</code> in the project root:
+              </p>
+              <pre className="mt-2 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3 text-xs text-[var(--text)]">
+{`ANTHROPIC_API_KEY=sk-ant-...
+# optional:
+ANTHROPIC_MODEL=claude-sonnet-4-20250514`}
+              </pre>
+            </div>
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+                Production (Vercel)
+              </div>
+              <p className="mt-1">
+                Vercel project → Settings → Environment Variables → add{" "}
+                <code className="text-[var(--text)]">ANTHROPIC_API_KEY</code>, then redeploy.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
           <h2 className="text-base font-medium">Export</h2>
           <p className="mt-2 text-sm text-[var(--text-muted)]">
             Mini Boxes use the Shadow AI master template

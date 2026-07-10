@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import type { SourceArticle } from "@/lib/mini-box";
+import {
+  anthropicConfigured,
+  anthropicJson,
+  anthropicMissingKeyMessage,
+} from "@/lib/anthropic";
 
 type Body = {
   kind: "topics" | "articles";
   topic?: string;
   articles?: SourceArticle[];
+  model?: string;
 };
 
 const MOCK_TOPICS = [
@@ -44,19 +50,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "kind is required" }, { status: 400 });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
+    if (!anthropicConfigured()) {
       if (body.kind === "topics") {
         return NextResponse.json({
           source: "mock",
           topics: MOCK_TOPICS,
-          note: "Mock topic ideas. Add OPENAI_API_KEY for live research suggestions.",
+          note: `Mock topic ideas. ${anthropicMissingKeyMessage()}`,
         });
       }
       return NextResponse.json({
         source: "mock",
         articles: mockArticles(body.topic || ""),
-        note: "Mock article ideas. Add OPENAI_API_KEY for live research suggestions.",
+        note: `Mock article ideas. ${anthropicMissingKeyMessage()}`,
       });
     }
 
@@ -67,40 +72,18 @@ export async function POST(request: Request) {
 Existing articles: ${JSON.stringify(body.articles || [])}
 Suggest 5 relevant source articles/angles for a security Mini Box. Prefer real-sounding titles and plausible URLs or leave url empty if unsure. Return JSON: { "articles": [{ "title": string, "url": string, "notes": string }] }`;
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.7,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content:
-              "You help Living Security writers research Mini Box topics and source articles. Be practical and timely. JSON only.",
-          },
-          { role: "user", content: prompt },
-        ],
-      }),
-    });
-
-    if (!res.ok) {
-      throw new Error(`OpenAI error: ${res.status}`);
-    }
-
-    const data = (await res.json()) as {
-      choices: Array<{ message: { content: string } }>;
-    };
-    const parsed = JSON.parse(data.choices[0]?.message?.content || "{}") as {
+    const parsed = await anthropicJson<{
       topics?: string[];
       articles?: Array<{ title: string; url: string; notes: string }>;
-    };
+    }>({
+      system:
+        "You help Living Security writers research Mini Box topics and source articles. Be practical and timely. JSON only.",
+      user: prompt,
+      temperature: 0.7,
+      model: body.model,
+    });
 
-    return NextResponse.json({ source: "openai", ...parsed });
+    return NextResponse.json({ source: "anthropic", model: body.model, ...parsed });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Research suggestion failed.";
