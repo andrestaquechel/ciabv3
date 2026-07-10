@@ -55,7 +55,19 @@ export async function listFolderFiles(folderId: string) {
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
     });
-    files.push(...(res.data.files ?? []));
+    const batch = (res.data.files ?? [])
+      .filter(
+        (f): f is typeof f & { id: string; name: string; mimeType: string; modifiedTime: string } =>
+          !!f.id && !!f.name && !!f.mimeType && !!f.modifiedTime,
+      )
+      .map((f) => ({
+        id: f.id,
+        name: f.name,
+        mimeType: f.mimeType,
+        modifiedTime: f.modifiedTime,
+        webViewLink: f.webViewLink ?? undefined,
+      }));
+    files.push(...batch);
     pageToken = res.data.nextPageToken ?? undefined;
   } while (pageToken);
 
