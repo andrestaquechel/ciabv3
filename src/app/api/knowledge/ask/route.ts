@@ -1,16 +1,26 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import {
-  exportFileText,
-  listFolderFiles,
-  parseDriveFolderId,
-} from "@/lib/google-drive";
+import { parseDriveFolderId } from "@/lib/google-drive";
+import type { IndexedDocument } from "@/lib/knowledge-cache";
 
 type Body = {
   question: string;
   boxType: "mini-box" | "ciab";
   folderId: string;
+  index?: IndexedDocument[];
 };
+
+function buildContext(docs: IndexedDocument[], maxChars = 90000) {
+  const snippets: string[] = [];
+  let total = 0;
+  for (const doc of docs) {
+    const block = `FILE: ${doc.path || doc.name}\nMODIFIED: ${doc.modifiedTime}\n${doc.text}`.trim();
+    if (total + block.length > maxChars) break;
+    snippets.push(block);
+    total += block.length;
+  }
+  return snippets.join("\n\n---\n\n");
+}
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -31,29 +41,36 @@ export async function POST(request: Request) {
       );
     }
 
-    const files = await listFolderFiles(folderId);
-    const relevant = files.slice(0, 40);
-
-    const snippets: string[] = [];
-    for (const file of relevant.slice(0, 15)) {
-      if (!file.id || !file.mimeType || !file.name) continue;
-      const text = await exportFileText(file.id, file.mimeType);
-      snippets.push(
-        `FILE: ${file.name}\nTYPE: ${file.mimeType}\nMODIFIED: ${file.modifiedTime}\n${text}`.trim(),
+    const indexed = body.index?.filter((d) => d.text?.trim()) ?? [];
+    if (indexed.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "No archive index loaded. Click “Build archive index” first to scan nested folders and cache document content.",
+        },
+        { status: 400 },
       );
     }
 
-    const context = snippets.join("\n\n---\n\n");
+    const context = buildContext(indexed);
     const apiKey = process.env.OPENAI_API_KEY;
 
     if (!apiKey) {
-      const matches = relevant.filter((f) =>
-        f.name?.toLowerCase().includes(body.question.toLowerCase().split(" ")[0]),
+      const q = body.question.toLowerCase();
+      const terms = q.split(/\s+/).filter((t) => t.length > 3);
+      const matches = indexed.filter((d) =>
+        terms.some(
+          (t) =>
+            d.name.toLowerCase().includes(t) ||
+            d.text.toLowerCase().includes(t) ||
+            d.path.toLowerCase().includes(t),
+        ),
       );
       return NextResponse.json({
         source: "mock",
-        answer: `Found ${relevant.length} files in this ${body.boxType} folder. Without OPENAI_API_KEY, here are recent matches by name: ${matches.map((f) => f.name).join(", ") || "none"}. Add OPENAI_API_KEY for full content-aware answers.`,
-        fileCount: relevant.length,
+        answer: `Searched ${indexed.length} indexed documents. Name/content matches: ${matches.slice(0, 8).map((m) => m.path || m.name).join(", ") || "none"}. Add OPENAI_API_KEY for full answers.`,
+        fileCount: indexed.length,
+        matchCount: matches.length,
       });
     }
 
@@ -69,11 +86,11 @@ export async function POST(request: Request) {
         messages: [
           {
             role: "system",
-            content: `You answer questions about Living Security ${body.boxType === "ciab" ? "Campaign in a Box (CIAB)" : "Mini Box"} content archived in Google Drive. Use file names, modified dates, and extracted text. If unsure, say what's missing. Today is ${new Date().toISOString().slice(0, 10)}.`,
+            content: `You answer questions about Living Security ${body.boxType === "ciab" ? "Campaign in a Box (CIAB)" : "Mini Box"} content from an indexed Google Drive archive. Cite specific file names and paths when relevant. If nothing matches, say so clearly. Today is ${new Date().toISOString().slice(0, 10)}.`,
           },
           {
             role: "user",
-            content: `Question: ${body.question}\n\nDrive folder files and excerpts:\n${context}`,
+            content: `Question: ${body.question}\n\nIndexed archive (${indexed.length} documents):\n${context}`,
           },
         ],
       }),
@@ -86,7 +103,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       source: "openai",
       answer,
-      fileCount: relevant.length,
+      fileCount: indexed.length,
     });
   } catch (error) {
     const message =

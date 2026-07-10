@@ -1,3 +1,8 @@
+import {
+  SHADOW_AI_SECTION_DEFAULTS,
+  SHADOW_AI_TOPIC,
+} from "@/lib/mini-box-shadow-ai-defaults";
+
 export type SectionStatus = "empty" | "draft" | "ready" | "error";
 
 export type GifSelection = {
@@ -15,14 +20,26 @@ export type SourceArticle = {
   notes: string;
 };
 
+/** Active builder nav sections */
 export type MiniBoxSectionId =
-  | "ideate"
-  | "inputs"
   | "title"
   | "welcome"
-  | "onePager"
+  | "onePagerP1"
+  | "onePagerP2"
   | "chat"
   | "review";
+
+/** Legacy ids kept for stored documents */
+export type LegacySectionId = "ideate" | "inputs" | "onePager";
+
+export const NAV_SECTION_LABELS: Record<MiniBoxSectionId, string> = {
+  title: "Topic / Title",
+  welcome: "Welcome Message",
+  onePagerP1: "Email / One Pager Pt 1",
+  onePagerP2: "Email / One Pager Pt 2",
+  chat: "Chat Message",
+  review: "Review",
+};
 
 export type MiniBoxDocument = {
   id: string;
@@ -69,6 +86,8 @@ export type MiniBoxDocument = {
       greeting: string;
       subjectLine: string;
       bodyPart1: string;
+      /** Sidebar callout on one-pager slide 4 */
+      callout: string;
       bodyPart2: string;
       gif: GifSelection;
     };
@@ -87,30 +106,37 @@ export type MiniBoxDocument = {
   };
 };
 
-/** Build content sections shown between Ideate and Review */
 export const BUILD_SECTION_ORDER: MiniBoxSectionId[] = [
-  "inputs",
-  "title",
   "welcome",
-  "onePager",
+  "onePagerP1",
+  "onePagerP2",
   "chat",
 ];
 
 export const SECTION_ORDER: MiniBoxSectionId[] = [
-  "ideate",
+  "title",
   ...BUILD_SECTION_ORDER,
   "review",
 ];
 
+export function normalizeSectionId(id: string): MiniBoxSectionId {
+  if (id === "ideate" || id === "inputs") return "title";
+  if (id === "onePager") return "onePagerP1";
+  if (SECTION_ORDER.includes(id as MiniBoxSectionId)) return id as MiniBoxSectionId;
+  return "title";
+}
+
 export function createEmptyMiniBox(topic = ""): MiniBoxDocument {
   const now = new Date().toISOString();
   const id = `mb-${Date.now()}`;
+  const resolvedTopic = topic || SHADOW_AI_TOPIC;
+  const d = SHADOW_AI_SECTION_DEFAULTS;
 
   return {
     id,
     type: "mini-box",
-    title: topic || "Untitled Mini Box",
-    topic,
+    title: resolvedTopic,
+    topic: resolvedTopic,
     articles: [],
     status: "draft",
     createdAt: now,
@@ -127,45 +153,45 @@ export function createEmptyMiniBox(topic = ""): MiniBoxDocument {
       inputs: {
         id: "inputs",
         label: "Topics & Articles",
-        status: topic ? "draft" : "empty",
+        status: "draft",
       },
       title: {
         id: "title",
-        label: "Cover / Title",
-        status: topic ? "draft" : "empty",
-        topicTitle: topic,
+        label: "Topic / Title",
+        status: "ready",
+        topicTitle: topic || d.title.topicTitle,
       },
       welcome: {
         id: "welcome",
         label: "Welcome Message",
-        status: "empty",
-        intro: "",
-        contents: "",
-        closing:
-          "You are absolutely free to edit and customize the content we send. Make this Mini Box your own! Please don't hesitate to let us know if there's something you would like to see in the future.\n\nThe Living Security Team",
-        gif: null,
+        status: "ready",
+        intro: d.welcome.intro,
+        contents: d.welcome.contents,
+        closing: d.welcome.closing,
+        gif: d.welcome.gif,
       },
       onePager: {
         id: "onePager",
         label: "One-Pager / Email",
-        status: "empty",
-        greeting: "Hey, Team!",
-        subjectLine: "",
-        bodyPart1: "",
-        bodyPart2: "",
-        gif: null,
+        status: "ready",
+        greeting: d.onePager.greeting,
+        subjectLine: d.onePager.subjectLine,
+        bodyPart1: d.onePager.bodyPart1,
+        callout: d.onePager.callout,
+        bodyPart2: d.onePager.bodyPart2,
+        gif: d.onePager.gif,
       },
       chat: {
         id: "chat",
         label: "Chat Message",
-        status: "empty",
-        message: "",
-        gif: null,
+        status: "ready",
+        message: d.chat.message,
+        gif: d.chat.gif,
       },
       review: {
         id: "review",
         label: "Review",
-        status: "empty",
+        status: "draft",
       },
     },
   };
@@ -182,28 +208,19 @@ export function createEmptyCiab(topic = ""): MiniBoxDocument {
 }
 
 export function sectionNeedsGif(id: MiniBoxSectionId): boolean {
-  return id === "welcome" || id === "onePager" || id === "chat";
+  return id === "welcome" || id === "onePagerP1" || id === "chat";
 }
 
 export function deriveSectionStatus(
   doc: MiniBoxDocument,
   sectionId: MiniBoxSectionId,
 ): SectionStatus {
-  if (sectionId === "ideate") {
+  if (sectionId === "title") {
     const notes = doc.sections.ideate?.notes?.trim() || "";
     const titleName = doc.sections.title?.topicTitle?.trim() || "";
-    if (notes || doc.topic.trim() || titleName) return "draft";
+    if (titleName) return "ready";
+    if (notes || doc.topic.trim()) return "draft";
     return "empty";
-  }
-
-  if (sectionId === "inputs") {
-    const hasTopic = doc.topic.trim().length > 0;
-    const hasArticles = doc.articles.some(
-      (a) => a.title.trim() || a.url.trim() || a.notes.trim(),
-    );
-    if (!hasTopic && !hasArticles) return "empty";
-    if (hasTopic && hasArticles) return "ready";
-    return "draft";
   }
 
   if (sectionId === "review") {
@@ -215,30 +232,38 @@ export function deriveSectionStatus(
     return "empty";
   }
 
-  const section = doc.sections[sectionId];
+  if (sectionId === "welcome") {
+    const s = doc.sections.welcome;
+    const filled = s.intro.trim() && s.contents.trim();
+    if (!filled) return "empty";
+    if (!s.gif) return "draft";
+    return "ready";
+  }
 
-  if (section.id === "title") {
-    return section.topicTitle.trim() ? "draft" : "empty";
-  }
-  if (section.id === "welcome") {
-    const filled = section.intro.trim() && section.contents.trim();
-    if (!filled) return "empty";
-    if (!section.gif) return "draft";
-    return "ready";
-  }
-  if (section.id === "onePager") {
+  if (sectionId === "onePagerP1") {
+    const s = doc.sections.onePager;
     const filled =
-      section.subjectLine.trim() &&
-      section.bodyPart1.trim() &&
-      section.bodyPart2.trim();
+      s.greeting.trim() &&
+      s.subjectLine.trim() &&
+      s.bodyPart1.trim() &&
+      s.callout.trim();
     if (!filled) return "empty";
-    if (!section.gif) return "draft";
+    if (!s.gif) return "draft";
     return "ready";
   }
-  if (section.id === "chat") {
-    if (!section.message.trim()) return "empty";
-    if (!section.gif) return "draft";
+
+  if (sectionId === "onePagerP2") {
+    const s = doc.sections.onePager;
+    if (!s.bodyPart2.trim()) return "empty";
     return "ready";
   }
+
+  if (sectionId === "chat") {
+    const s = doc.sections.chat;
+    if (!s.message.trim()) return "empty";
+    if (!s.gif) return "draft";
+    return "ready";
+  }
+
   return "empty";
 }

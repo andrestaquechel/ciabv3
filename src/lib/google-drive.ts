@@ -74,6 +74,119 @@ export async function listFolderFiles(folderId: string) {
   return files;
 }
 
+export type DriveEntry = {
+  id: string;
+  name: string;
+  mimeType: string;
+  modifiedTime: string;
+  webViewLink?: string;
+  isFolder: boolean;
+};
+
+export async function listFolderEntries(folderId: string): Promise<DriveEntry[]> {
+  const drive = await getDriveClient();
+  const entries: DriveEntry[] = [];
+  let pageToken: string | undefined;
+  const folderMime = "application/vnd.google-apps.folder";
+
+  do {
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed = false`,
+      fields:
+        "nextPageToken, files(id, name, mimeType, modifiedTime, webViewLink)",
+      pageSize: 100,
+      pageToken,
+      orderBy: "folder,name",
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+    for (const f of res.data.files ?? []) {
+      if (!f.id || !f.name || !f.mimeType || !f.modifiedTime) continue;
+      entries.push({
+        id: f.id,
+        name: f.name,
+        mimeType: f.mimeType,
+        modifiedTime: f.modifiedTime,
+        webViewLink: f.webViewLink ?? undefined,
+        isFolder: f.mimeType === folderMime,
+      });
+    }
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+
+  return entries;
+}
+
+const INDEXABLE_MIMES = new Set([
+  "application/vnd.google-apps.document",
+  "application/vnd.google-apps.presentation",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/pdf",
+  "text/plain",
+]);
+
+export async function indexArchiveRecursive(
+  folderId: string,
+  pathPrefix = "",
+  maxFiles = 250,
+): Promise<
+  Array<{
+    id: string;
+    name: string;
+    path: string;
+    mimeType: string;
+    modifiedTime: string;
+    text: string;
+    webViewLink?: string;
+  }>
+> {
+  const results: Array<{
+    id: string;
+    name: string;
+    path: string;
+    mimeType: string;
+    modifiedTime: string;
+    text: string;
+    webViewLink?: string;
+  }> = [];
+
+  async function walk(folderId: string, path: string) {
+    if (results.length >= maxFiles) return;
+    const entries = await listFolderEntries(folderId);
+    for (const entry of entries) {
+      if (results.length >= maxFiles) break;
+      const entryPath = path ? `${path}/${entry.name}` : entry.name;
+      if (entry.isFolder) {
+        await walk(entry.id, entryPath);
+      } else if (INDEXABLE_MIMES.has(entry.mimeType)) {
+        const text = await exportFileText(entry.id, entry.mimeType);
+        results.push({
+          id: entry.id,
+          name: entry.name,
+          path: entryPath,
+          mimeType: entry.mimeType,
+          modifiedTime: entry.modifiedTime,
+          text,
+          webViewLink: entry.webViewLink,
+        });
+      } else {
+        results.push({
+          id: entry.id,
+          name: entry.name,
+          path: entryPath,
+          mimeType: entry.mimeType,
+          modifiedTime: entry.modifiedTime,
+          text: `[File: ${entry.name}]`,
+          webViewLink: entry.webViewLink,
+        });
+      }
+    }
+  }
+
+  await walk(folderId, pathPrefix);
+  return results;
+}
+
 export type DriveFolder = {
   id: string;
   name: string;

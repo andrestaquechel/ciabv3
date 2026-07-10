@@ -6,7 +6,6 @@ import type { MiniBoxDocument, MiniBoxSectionId } from "@/lib/mini-box";
 import { AppShell } from "@/components/layout/AppShell";
 import { SectionNav } from "@/components/builder/SectionNav";
 import { SectionEditor } from "@/components/builder/SectionEditor";
-import { TopicArticlesEditor } from "@/components/builder/TopicArticlesEditor";
 import { IdeatePanel } from "@/components/builder/IdeatePanel";
 import { ReviewPanel } from "@/components/builder/ReviewPanel";
 import { PptPreview } from "@/components/builder/PptPreview";
@@ -54,7 +53,7 @@ async function downloadPptx(doc: MiniBoxDocument) {
 export function MiniBoxBuilder({ initialId }: { initialId: string }) {
   const [document, setDocument] = useState<MiniBoxDocument | null>(null);
   const [activeSection, setActiveSection] =
-    useState<MiniBoxSectionId>("ideate");
+    useState<MiniBoxSectionId>("title");
   const [syncPreview, setSyncPreview] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -172,14 +171,8 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
                 {error || message}
               </div>
             )}
-            {activeSection === "ideate" ? (
-              <IdeatePanel
-                document={document}
-                onChange={updateDoc}
-                onContinue={() => setActiveSection("inputs")}
-              />
-            ) : activeSection === "inputs" ? (
-              <TopicArticlesEditor document={document} onChange={updateDoc} />
+            {activeSection === "title" ? (
+              <IdeatePanel document={document} onChange={updateDoc} />
             ) : activeSection === "review" ? (
               <ReviewPanel
                 document={document}
@@ -189,7 +182,9 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
             ) : (
               <SectionEditor
                 document={document}
-                sectionId={activeSection as "title" | "welcome" | "onePager" | "chat"}
+                sectionId={
+                  activeSection as "welcome" | "onePagerP1" | "onePagerP2" | "chat"
+                }
                 onChange={updateDoc}
               />
             )}

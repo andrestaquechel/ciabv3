@@ -16,6 +16,7 @@ import type {
 } from "@/lib/mini-box";
 import {
   BUILD_SECTION_ORDER,
+  NAV_SECTION_LABELS,
   deriveSectionStatus,
 } from "@/lib/mini-box";
 import { useShell } from "@/components/layout/ShellContext";
@@ -35,13 +36,11 @@ const statusIcon = (status: SectionStatus) => {
 
 function SectionItem({
   label,
-  sublabel,
   status,
   active,
   onClick,
 }: {
   label: string;
-  sublabel?: string;
   status: SectionStatus;
   active: boolean;
   onClick: () => void;
@@ -57,14 +56,7 @@ function SectionItem({
       }`}
     >
       {statusIcon(status)}
-      <span className="min-w-0 truncate">
-        {label}
-        {sublabel && (
-          <span className="ml-1.5 text-[10px] uppercase tracking-wide opacity-60">
-            {sublabel}
-          </span>
-        )}
-      </span>
+      <span className="min-w-0 truncate">{label}</span>
     </button>
   );
 }
@@ -84,16 +76,16 @@ export function SectionNav({
 }) {
   const { sectionsHidden, toggleSections } = useShell();
 
-  const ideateStatus = deriveSectionStatus(document, "ideate");
+  const titleStatus = deriveSectionStatus(document, "title");
   const reviewStatus = deriveSectionStatus(document, "review");
 
   const buildItems = useMemo(
     () =>
-      BUILD_SECTION_ORDER.map((id) => {
-        const section = document.sections[id];
-        const status = deriveSectionStatus(document, id);
-        return { id, label: section.label, status };
-      }),
+      BUILD_SECTION_ORDER.map((id) => ({
+        id,
+        label: NAV_SECTION_LABELS[id],
+        status: deriveSectionStatus(document, id),
+      })),
     [document],
   );
 
@@ -120,7 +112,7 @@ export function SectionNav({
             Sections
           </div>
           <div className="mt-1 truncate text-sm font-medium">
-            {document.title || "Untitled Mini Box"}
+            {document.title || "Untitled"}
           </div>
         </div>
         <button
@@ -135,11 +127,10 @@ export function SectionNav({
 
       <div className="flex-1 overflow-auto p-3 scrollbar-thin">
         <SectionItem
-          label="Topic"
-          sublabel="Ideate"
-          status={ideateStatus}
-          active={activeId === "ideate"}
-          onClick={() => onSelect("ideate")}
+          label={NAV_SECTION_LABELS.title}
+          status={titleStatus}
+          active={activeId === "title"}
+          onClick={() => onSelect("title")}
         />
 
         <div className="mb-2 mt-3 px-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
@@ -158,8 +149,7 @@ export function SectionNav({
 
         <div className="mt-3 border-t border-[var(--border)] pt-3">
           <SectionItem
-            label="Review"
-            sublabel="Review"
+            label={NAV_SECTION_LABELS.review}
             status={reviewStatus}
             active={activeId === "review"}
             onClick={() => onSelect("review")}

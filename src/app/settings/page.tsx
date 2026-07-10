@@ -173,9 +173,9 @@ export default function SettingsPage() {
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
           <h2 className="text-base font-medium">Export</h2>
           <p className="mt-2 text-sm text-[var(--text-muted)]">
-            Mini Boxes use the master template (`mini-box-master.pptx`) for
-            preview and download. The live preview renders the same file you
-            export.
+            Mini Boxes use the Shadow AI master template
+            (`mini-box-master.pptx`) for preview and download. New boxes start
+            with that example content pre-filled for editing.
           </p>
         </div>
         </div>

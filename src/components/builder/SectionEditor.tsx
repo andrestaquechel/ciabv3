@@ -12,12 +12,13 @@ import {
 import type {
   GifSelection,
   MiniBoxDocument,
+  MiniBoxSectionId,
 } from "@/lib/mini-box";
-import { deriveSectionStatus } from "@/lib/mini-box";
+import { NAV_SECTION_LABELS, deriveSectionStatus } from "@/lib/mini-box";
 import { GifPicker } from "@/components/builder/GifPicker";
 import { StatusPill } from "@/components/builder/SectionNav";
 
-type ContentSectionId = "title" | "welcome" | "onePager" | "chat";
+type EditorSectionId = "welcome" | "onePagerP1" | "onePagerP2" | "chat";
 type AiAction = "generate" | "shorten" | "warmer" | "sharper" | "concrete";
 
 function Field({
@@ -55,66 +56,93 @@ export function SectionEditor({
   onChange,
 }: {
   document: MiniBoxDocument;
-  sectionId: ContentSectionId;
+  sectionId: EditorSectionId;
   onChange: (next: MiniBoxDocument) => void;
 }) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiNote, setAiNote] = useState<string | null>(null);
-  const section = document.sections[sectionId];
   const status = deriveSectionStatus(document, sectionId);
+  const label = NAV_SECTION_LABELS[sectionId];
 
   const gifQuery = useMemo(() => {
     if (sectionId === "welcome") return `${document.topic} welcome security`;
-    if (sectionId === "onePager") return `${document.topic} cybersecurity`;
+    if (sectionId === "onePagerP1" || sectionId === "onePagerP2")
+      return `${document.topic} cybersecurity`;
     if (sectionId === "chat") return `${document.topic} chat reaction`;
     return document.topic || "cybersecurity";
   }, [document.topic, sectionId]);
 
-  function patchSection(partial: Record<string, unknown>) {
-    const next = {
+  function patchOnePager(partial: Record<string, unknown>) {
+    onChange({
       ...document,
       updatedAt: new Date().toISOString(),
       sections: {
         ...document.sections,
-        [sectionId]: {
-          ...document.sections[sectionId],
+        onePager: {
+          ...document.sections.onePager,
           ...partial,
         },
       },
-    } as MiniBoxDocument;
+    });
+  }
 
-    if (sectionId === "title" && typeof partial.topicTitle === "string") {
-      next.topic = partial.topicTitle;
-      next.title = partial.topicTitle || "Untitled Mini Box";
-    }
+  function patchWelcome(partial: Record<string, unknown>) {
+    onChange({
+      ...document,
+      updatedAt: new Date().toISOString(),
+      sections: {
+        ...document.sections,
+        welcome: {
+          ...document.sections.welcome,
+          ...partial,
+        },
+      },
+    });
+  }
 
-    onChange(next);
+  function patchChat(partial: Record<string, unknown>) {
+    onChange({
+      ...document,
+      updatedAt: new Date().toISOString(),
+      sections: {
+        ...document.sections,
+        chat: {
+          ...document.sections.chat,
+          ...partial,
+        },
+      },
+    });
   }
 
   function setGif(gif: GifSelection) {
-    if (sectionId === "welcome" || sectionId === "onePager" || sectionId === "chat") {
-      patchSection({ gif });
-    }
+    if (sectionId === "welcome") patchWelcome({ gif });
+    if (sectionId === "onePagerP1") patchOnePager({ gif });
+    if (sectionId === "chat") patchChat({ gif });
   }
 
   async function runAi(action: AiAction) {
     setAiLoading(true);
     setAiNote(null);
     try {
+      const aiSectionId =
+        sectionId === "onePagerP1" || sectionId === "onePagerP2"
+          ? "onePager"
+          : sectionId;
+
       const currentText =
-        sectionId === "title"
-          ? document.sections.title.topicTitle
-          : sectionId === "welcome"
-            ? document.sections.welcome.intro
-            : sectionId === "onePager"
-              ? document.sections.onePager.bodyPart1
+        sectionId === "welcome"
+          ? document.sections.welcome.intro
+          : sectionId === "onePagerP1"
+            ? document.sections.onePager.bodyPart1
+            : sectionId === "onePagerP2"
+              ? document.sections.onePager.bodyPart2
               : document.sections.chat.message;
 
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sectionId,
+          sectionId: aiSectionId,
           topic: document.topic || document.sections.title.topicTitle,
           articles: document.articles,
           action,
@@ -125,12 +153,22 @@ export function SectionEditor({
       if (!res.ok) throw new Error(data.error || "AI failed");
 
       if (data.fields) {
-        patchSection(data.fields);
+        if (sectionId === "welcome") patchWelcome(data.fields);
+        else if (sectionId === "onePagerP1") {
+          patchOnePager({
+            greeting: data.fields.greeting,
+            subjectLine: data.fields.subjectLine,
+            bodyPart1: data.fields.bodyPart1,
+            callout: data.fields.callout,
+          });
+        } else if (sectionId === "onePagerP2") {
+          patchOnePager({ bodyPart2: data.fields.bodyPart2 });
+        } else if (sectionId === "chat") patchChat(data.fields);
       } else if (data.text && action !== "generate") {
-        if (sectionId === "welcome") patchSection({ intro: data.text });
-        if (sectionId === "onePager") patchSection({ bodyPart1: data.text });
-        if (sectionId === "chat") patchSection({ message: data.text });
-        if (sectionId === "title") patchSection({ topicTitle: data.text });
+        if (sectionId === "welcome") patchWelcome({ intro: data.text });
+        if (sectionId === "onePagerP1") patchOnePager({ bodyPart1: data.text });
+        if (sectionId === "onePagerP2") patchOnePager({ bodyPart2: data.text });
+        if (sectionId === "chat") patchChat({ message: data.text });
       }
       if (data.note) setAiNote(data.note);
     } catch (err) {
@@ -152,7 +190,7 @@ export function SectionEditor({
     <div className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-[var(--border)] px-5 py-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-base font-medium">{section.label}</h2>
+          <h2 className="text-base font-medium">{label}</h2>
           <StatusPill status={status} />
         </div>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
@@ -190,36 +228,26 @@ export function SectionEditor({
         </div>
 
         <div className="space-y-4">
-          {sectionId === "title" && (
-            <Field
-              label="Topic title"
-              rows={2}
-              value={document.sections.title.topicTitle}
-              onChange={(topicTitle) => patchSection({ topicTitle })}
-              placeholder="e.g. Shadow AI"
-            />
-          )}
-
           {sectionId === "welcome" && (
             <>
               <Field
                 label="Intro"
                 rows={5}
                 value={document.sections.welcome.intro}
-                onChange={(intro) => patchSection({ intro })}
+                onChange={(intro) => patchWelcome({ intro })}
                 placeholder="Welcome to your Mini Box…"
               />
               <Field
                 label="What's inside"
                 rows={6}
                 value={document.sections.welcome.contents}
-                onChange={(contents) => patchSection({ contents })}
+                onChange={(contents) => patchWelcome({ contents })}
               />
               <Field
                 label="Closing"
                 rows={4}
                 value={document.sections.welcome.closing}
-                onChange={(closing) => patchSection({ closing })}
+                onChange={(closing) => patchWelcome({ closing })}
               />
               <GifPicker
                 defaultQuery={gifQuery}
@@ -229,32 +257,33 @@ export function SectionEditor({
             </>
           )}
 
-          {sectionId === "onePager" && (
+          {sectionId === "onePagerP1" && (
             <>
               <Field
                 label="Greeting"
                 rows={1}
                 value={document.sections.onePager.greeting}
-                onChange={(greeting) => patchSection({ greeting })}
+                onChange={(greeting) => patchOnePager({ greeting })}
               />
               <Field
                 label="Subject line"
                 rows={2}
                 value={document.sections.onePager.subjectLine}
-                onChange={(subjectLine) => patchSection({ subjectLine })}
+                onChange={(subjectLine) => patchOnePager({ subjectLine })}
                 placeholder="🔒 …"
               />
               <Field
-                label="Body · part 1 (slide 4)"
+                label="Body · part 1"
                 rows={7}
                 value={document.sections.onePager.bodyPart1}
-                onChange={(bodyPart1) => patchSection({ bodyPart1 })}
+                onChange={(bodyPart1) => patchOnePager({ bodyPart1 })}
               />
               <Field
-                label="Body · part 2 / tips (slide 5)"
-                rows={8}
-                value={document.sections.onePager.bodyPart2}
-                onChange={(bodyPart2) => patchSection({ bodyPart2 })}
+                label="Callout sidebar"
+                rows={4}
+                value={document.sections.onePager.callout}
+                onChange={(callout) => patchOnePager({ callout })}
+                placeholder="Short definition or highlight…"
               />
               <GifPicker
                 defaultQuery={gifQuery}
@@ -264,13 +293,22 @@ export function SectionEditor({
             </>
           )}
 
+          {sectionId === "onePagerP2" && (
+            <Field
+              label="Body · part 2 / tips"
+              rows={10}
+              value={document.sections.onePager.bodyPart2}
+              onChange={(bodyPart2) => patchOnePager({ bodyPart2 })}
+            />
+          )}
+
           {sectionId === "chat" && (
             <>
               <Field
                 label="Chat message"
                 rows={12}
                 value={document.sections.chat.message}
-                onChange={(message) => patchSection({ message })}
+                onChange={(message) => patchChat({ message })}
                 placeholder="Quick scenario…"
               />
               <GifPicker

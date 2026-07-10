@@ -9,16 +9,14 @@ import { StatusPill } from "@/components/builder/SectionNav";
 export function IdeatePanel({
   document,
   onChange,
-  onContinue,
 }: {
   document: MiniBoxDocument;
   onChange: (next: MiniBoxDocument) => void;
-  onContinue: () => void;
 }) {
   const [suggesting, setSuggesting] = useState(false);
   const [topics, setTopics] = useState<string[]>([]);
   const [note, setNote] = useState<string | null>(null);
-  const status = deriveSectionStatus(document, "ideate");
+  const status = deriveSectionStatus(document, "title");
 
   function setNotes(notes: string) {
     onChange({
@@ -102,11 +100,11 @@ export function IdeatePanel({
     <div className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-[var(--border)] px-5 py-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-base font-medium">Topic · Ideate</h2>
+          <h2 className="text-base font-medium">Topic / Title</h2>
           <StatusPill status={status} />
         </div>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Brainstorm the Mini Box angle before locking topic and articles.
+          Set the cover title and brainstorm the angle for this box.
         </p>
       </div>
 
@@ -186,13 +184,6 @@ export function IdeatePanel({
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={onContinue}
-          className="rounded-xl bg-[var(--accent-strong)] px-4 py-2.5 text-sm font-medium text-white hover:brightness-110"
-        >
-          Continue to Topics & Articles
-        </button>
       </div>
     </div>
   );

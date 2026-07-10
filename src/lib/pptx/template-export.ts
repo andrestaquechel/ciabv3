@@ -9,11 +9,11 @@ const TEMPLATE_PATH = path.join(
   "mini-box-master.pptx",
 );
 
-/** Slide → ordered text shape indices to replace (from master template analysis) */
+/** Slide → GIF media path (Shadow AI master template) */
 const GIF_SLOTS: Record<number, string> = {
-  2: "ppt/media/image9.gif",
-  4: "ppt/media/image11.gif",
-  7: "ppt/media/image10.gif",
+  2: "ppt/media/image6.gif",
+  4: "ppt/media/image10.gif",
+  7: "ppt/media/image11.gif",
 };
 
 async function gifToBuffer(gif: GifSelection): Promise<Buffer | null> {
@@ -84,7 +84,8 @@ function buildReplacements(doc: MiniBoxDocument) {
     },
     4: {
       0: [s.onePager.greeting, s.onePager.bodyPart1].filter(Boolean).join("\n"),
-      3: s.onePager.subjectLine,
+      1: s.onePager.callout,
+      4: s.onePager.subjectLine,
     },
     5: {
       0: [s.onePager.bodyPart2, doc.signature].filter(Boolean).join("\n\n"),

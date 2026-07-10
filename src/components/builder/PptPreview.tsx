@@ -15,10 +15,10 @@ const SLIDE_LABELS = [
 ];
 
 function sectionToSlideIndex(section: MiniBoxSectionId): number {
-  if (section === "ideate" || section === "inputs" || section === "title")
-    return 0;
+  if (section === "title") return 0;
   if (section === "welcome") return 1;
-  if (section === "onePager") return 3;
+  if (section === "onePagerP1") return 3;
+  if (section === "onePagerP2") return 4;
   if (section === "chat") return 6;
   if (section === "review") return 6;
   return 0;

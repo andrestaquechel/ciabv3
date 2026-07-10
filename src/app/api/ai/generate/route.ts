@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
-import type { MiniBoxSectionId, SourceArticle } from "@/lib/mini-box";
+import type { SourceArticle } from "@/lib/mini-box";
+
+type GenerateSectionId =
+  | "title"
+  | "welcome"
+  | "onePager"
+  | "chat"
+  | "review";
 
 type GenerateBody = {
-  sectionId: MiniBoxSectionId;
+  sectionId: GenerateSectionId;
   topic: string;
   articles?: SourceArticle[];
   context?: string;
@@ -54,9 +61,10 @@ function mockGenerate(body: GenerateBody) {
         text: "",
         fields: {
           greeting: "Hey, Team!",
-          subjectLine: `🔒 A quick note on ${topic}`,
-          bodyPart1: `Not long ago, ${topic.toLowerCase()} made headlines — and it's a useful reminder for all of us.${sources ? `\n\nDrawing from recent reporting:\n${sources}` : ""}\n\nHere's the short version of what happened and why it matters for how we work day to day.`,
-          bodyPart2: `A few simple habits make a real difference:\n🔍 Stay alert to unusual requests or outputs.\n📄 Think before you share sensitive data with tools or people you don't fully trust.\n⚠️ When something feels off, pause and ask.\n✅ Stick to company-approved tools and processes.\n🙋 When in doubt, reach out to your security team.\n\nUntil next time,\n{{ SIGNATURE }}`,
+          subjectLine: `Subject:  👤 When AI casts a shadow…`,
+          bodyPart1: `There's no question that AI has changed the world…but it's yet to be seen precisely how. Organizations across the world have raced to adopt all kinds of AI tools in order to boost productivity and stay on the cutting edge of the way we work.${sources ? `\n\nDrawing from recent reporting:\n${sources}` : ""}`,
+          callout: `${topic} is the use of unapproved tools or practices that bypass IT oversight. These create pockets of sensitive data that cannot be reviewed, logged, or deleted by security teams.`,
+          bodyPart2: `This is both a security issue and a legal issue, so it's very important to prevent the practice of ${topic} within our organization. Never use any tool or feature that has not been pre-approved by IT. If you're not sure, ask.\nIf you aren't sure whether what you've been using is approved, please let the security team know immediately so we can help you correct the issue. We're here to help, not get anyone in trouble!\n\nAll the best,\n{{ SIGNATURE }}`,
         },
       };
     case "chat":
@@ -76,8 +84,6 @@ export async function POST(request: Request) {
     const body = (await request.json()) as GenerateBody;
     if (
       !body.sectionId ||
-      body.sectionId === "inputs" ||
-      body.sectionId === "ideate" ||
       body.sectionId === "review"
     ) {
       return NextResponse.json(
@@ -108,7 +114,7 @@ Context: ${body.context || "(none)"}
 Return a JSON object with keys matching the section fields:
 - title: { "topicTitle": string }
 - welcome: { "intro": string, "contents": string }
-- onePager: { "greeting": string, "subjectLine": string, "bodyPart1": string, "bodyPart2": string }
+- onePager: { "greeting": string, "subjectLine": string, "bodyPart1": string, "callout": string, "bodyPart2": string }
 - chat: { "message": string }`;
 
     const res = await fetch("https://api.openai.com/v1/chat/completions", {

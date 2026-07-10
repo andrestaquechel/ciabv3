@@ -33,6 +33,20 @@ function migrateDoc(raw: MiniBoxDocument): MiniBoxDocument {
           raw.topic ||
           base.sections.title.topicTitle,
       },
+      welcome: {
+        ...base.sections.welcome,
+        ...(raw.sections?.welcome || {}),
+      },
+      onePager: {
+        ...base.sections.onePager,
+        ...(raw.sections?.onePager || {}),
+        callout:
+          raw.sections?.onePager?.callout ?? base.sections.onePager.callout,
+      },
+      chat: {
+        ...base.sections.chat,
+        ...(raw.sections?.chat || {}),
+      },
     },
   };
 }

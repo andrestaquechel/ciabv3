@@ -41,6 +41,66 @@ const MOCK_GIFS = [
     url: "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif",
     previewUrl: "https://media.giphy.com/media/111ebonMs90YLu/200.gif",
   },
+  {
+    id: "mock-6",
+    title: "Shield",
+    url: "https://media.giphy.com/media/26BRv0ThflsHCqDrG/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/26BRv0ThflsHCqDrG/200.gif",
+  },
+  {
+    id: "mock-7",
+    title: "Lock",
+    url: "https://media.giphy.com/media/Is1O1TWV0LEJi/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/Is1O1TWV0LEJi/200.gif",
+  },
+  {
+    id: "mock-8",
+    title: "Warning",
+    url: "https://media.giphy.com/media/3o6Zt481isNVuBI1U4/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/3o6Zt481isNVuBI1U4/200.gif",
+  },
+  {
+    id: "mock-9",
+    title: "Research",
+    url: "https://media.giphy.com/media/l0HlBO7eyXgtkmJsc/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/l0HlBO7eyXgtkmJsc/200.gif",
+  },
+  {
+    id: "mock-10",
+    title: "Email",
+    url: "https://media.giphy.com/media/3o7TKSjRrfIPjeiVy/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/3o7TKSjRrfIPjeiVy/200.gif",
+  },
+  {
+    id: "mock-11",
+    title: "Team",
+    url: "https://media.giphy.com/media/3o7abldet0l7XEJT3O/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/3o7abldet0l7XEJT3O/200.gif",
+  },
+  {
+    id: "mock-12",
+    title: "Celebrate",
+    url: "https://media.giphy.com/media/5GoVLqeAi99PG/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/5GoVLqeAi99PG/200.gif",
+  },
+  {
+    id: "mock-13",
+    title: "Focus",
+    url: "https://media.giphy.com/media/l0MYGb1LuPD3LenPy/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/l0MYGb1LuPD3LenPy/200.gif",
+  },
+  {
+    id: "mock-14",
+    title: "Question",
+    url: "https://media.giphy.com/media/13CoXDiaFdCoyE/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/13CoXDiaFdCoyE/200.gif",
+  },
+  {
+    id: "mock-15",
+    title: "Done",
+    url: "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/26u4cqiYI30juCOGY/200.gif",
+  },
 ];
 
 export async function GET(request: Request) {
@@ -61,7 +121,7 @@ export async function GET(request: Request) {
     const url = new URL("https://api.giphy.com/v1/gifs/search");
     url.searchParams.set("api_key", apiKey);
     url.searchParams.set("q", q);
-    url.searchParams.set("limit", "5");
+    url.searchParams.set("limit", "15");
     url.searchParams.set("rating", "pg-13");
     url.searchParams.set("lang", "en");
 

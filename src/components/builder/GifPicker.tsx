@@ -45,7 +45,7 @@ export function GifPicker({
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-4">
       <div className="mb-3 flex items-center justify-between">
         <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
-          GIF picker · pick 1 of 5
+          GIF picker · pick 1 of 15
         </div>
         {selected && (
           <button
