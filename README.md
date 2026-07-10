@@ -3,7 +3,7 @@
 Build **Mini Box** content with a native PowerPoint builder. Preview slides live, then **download a PPTX** and upload to Google Drive → Open with Google Slides when needed.
 
 **Live:** https://ciabv2-gilt.vercel.app  
-**Repo:** https://github.com/seeing-in-color/CIABv2  
+**Repo:** https://github.com/andrestaquechel/CIABv2  
 
 ## Flow
 
