@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import type { MiniBoxDocument, MiniBoxSectionId } from "@/lib/mini-box";
+import { SLIDE_ASPECT } from "@/lib/pptx/slide-formatting";
 
 const SLIDE_LABELS = [
   "Cover",
@@ -24,6 +25,11 @@ function sectionToSlideIndex(section: MiniBoxSectionId): number {
   return 0;
 }
 
+function fitSlideWidth(containerWidth: number, containerHeight: number): number {
+  const widthFromHeight = containerHeight * SLIDE_ASPECT;
+  return Math.floor(Math.min(containerWidth, widthFromHeight));
+}
+
 export function PptPreview({
   document,
   activeSection,
@@ -39,8 +45,9 @@ export function PptPreview({
   const [presentation, setPresentation] = useState<import("pptx-viewer").LoadedPresentation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const slideHostRef = useRef<HTMLDivElement>(null);
-  const containerWidthRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (syncPreview) {
@@ -90,24 +97,39 @@ export function PptPreview({
   }, [presentation]);
 
   useEffect(() => {
-    if (!presentation || !slideHostRef.current) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      setContainerSize({ width, height });
+    });
+
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!presentation || !slideHostRef.current || containerSize.width <= 0) return;
 
     const host = slideHostRef.current;
     host.innerHTML = "";
 
     void (async () => {
       const { renderSlideToElement } = await import("pptx-viewer");
-      const width = containerWidthRef.current?.clientWidth ?? 960;
+      const width = fitSlideWidth(containerSize.width, containerSize.height);
       renderSlideToElement(presentation, index, host, { width });
     })();
-  }, [presentation, index]);
+  }, [presentation, index, containerSize]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)]">
-      <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)]">
+      <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
         <div>
           <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
-            {boxType === "ciab" ? "CIAB" : "Mini Box"} template preview
+            {boxType === "ciab" ? "CIAB" : "Shadow AI Mini Box"} preview
           </div>
           <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
             Slide {index + 1} of 7 · {SLIDE_LABELS[index]}
@@ -135,8 +157,8 @@ export function PptPreview({
       </div>
 
       <div
-        ref={containerWidthRef}
-        className="relative flex min-h-0 flex-1 items-center justify-center bg-[#ececec] p-4"
+        ref={viewportRef}
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#ececec] p-4"
       >
         {error && (
           <p className="absolute inset-x-4 top-4 z-10 rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-xs text-[var(--danger)]">
@@ -146,16 +168,16 @@ export function PptPreview({
         {loading && !presentation && (
           <div className="flex items-center gap-2 text-sm text-[var(--text-dim)]">
             <Loader2 size={16} className="animate-spin" />
-            Building preview from master template…
+            Building preview from Shadow AI template…
           </div>
         )}
         <div
           ref={slideHostRef}
-          className="w-full max-w-full [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
+          className="flex max-h-full max-w-full items-center justify-center overflow-hidden [&_svg]:block [&_svg]:h-auto [&_svg]:max-h-full [&_svg]:max-w-full [&_svg]:w-auto"
         />
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto border-t border-[var(--border)] px-3 py-2 scrollbar-thin">
+      <div className="flex shrink-0 gap-1.5 overflow-x-auto border-t border-[var(--border)] px-3 py-2 scrollbar-thin">
         {SLIDE_LABELS.map((label, i) => (
           <button
             key={label}

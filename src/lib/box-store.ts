@@ -104,6 +104,7 @@ export function boxKindLabel(kind: BoxKind) {
 }
 
 export const SYNC_PREVIEW_KEY = "box-studio:sync-preview";
+export const PREVIEW_SPLIT_KEY = "box-studio:preview-split";
 
 export function loadSyncPreviewPreference(): boolean {
   if (typeof window === "undefined") return true;
@@ -114,4 +115,16 @@ export function loadSyncPreviewPreference(): boolean {
 
 export function saveSyncPreviewPreference(enabled: boolean) {
   localStorage.setItem(SYNC_PREVIEW_KEY, enabled ? "1" : "0");
+}
+
+export function loadPreviewSplitPreference(): number {
+  if (typeof window === "undefined") return 46;
+  const stored = localStorage.getItem(PREVIEW_SPLIT_KEY);
+  const parsed = stored ? Number(stored) : 46;
+  if (!Number.isFinite(parsed)) return 46;
+  return Math.min(62, Math.max(28, parsed));
+}
+
+export function savePreviewSplitPreference(percent: number) {
+  localStorage.setItem(PREVIEW_SPLIT_KEY, String(percent));
 }

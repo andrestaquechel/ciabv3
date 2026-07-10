@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       pptxBase64: buffer.toString("base64"),
       slideCount: 7,
-      template: "mini-box-master",
+      template: "shadow-ai-mini-box",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Preview failed";

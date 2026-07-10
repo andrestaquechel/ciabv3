@@ -10,11 +10,14 @@ import { IdeatePanel } from "@/components/builder/IdeatePanel";
 import { ReviewPanel } from "@/components/builder/ReviewPanel";
 import { PptPreview } from "@/components/builder/PptPreview";
 import { BuilderTopBar } from "@/components/builder/BuilderTopBar";
+import { BuilderSplitPane } from "@/components/builder/BuilderSplitPane";
 import {
   createBox,
   loadBox,
+  loadPreviewSplitPreference,
   loadSyncPreviewPreference,
   saveBox,
+  savePreviewSplitPreference,
   saveSyncPreviewPreference,
   type BoxKind,
 } from "@/lib/box-store";
@@ -55,12 +58,14 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
   const [activeSection, setActiveSection] =
     useState<MiniBoxSectionId>("title");
   const [syncPreview, setSyncPreview] = useState(true);
+  const [previewSplit, setPreviewSplit] = useState(46);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setSyncPreview(loadSyncPreviewPreference());
+    setPreviewSplit(loadPreviewSplitPreference());
   }, []);
 
   useEffect(() => {
@@ -79,6 +84,11 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
     setDocument(next);
     saveBox(next);
   }, []);
+
+  function handlePreviewSplitChange(percent: number) {
+    setPreviewSplit(percent);
+    savePreviewSplitPreference(percent);
+  }
 
   function handleSyncPreviewChange(enabled: boolean) {
     setSyncPreview(enabled);
@@ -158,47 +168,50 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
           publishing={publishing}
         />
 
-        <div className="flex min-w-0 flex-1">
-          <div className="flex min-w-0 flex-1 flex-col border-r border-[var(--border)]">
-            {(error || message) && (
-              <div
-                className={`mx-5 mt-4 rounded-xl border px-3 py-2 text-sm ${
-                  error
-                    ? "border-[var(--danger)]/40 bg-[var(--danger-soft)] text-[var(--danger)]"
-                    : "border-[var(--accent)]/30 bg-[var(--accent-soft)] text-[var(--accent)]"
-                }`}
-              >
-                {error || message}
-              </div>
-            )}
-            {activeSection === "title" ? (
-              <IdeatePanel document={document} onChange={updateDoc} />
-            ) : activeSection === "review" ? (
-              <ReviewPanel
-                document={document}
-                onJump={(id) => setActiveSection(id)}
-                onPublish={() => void publish()}
-              />
-            ) : (
-              <SectionEditor
-                document={document}
-                sectionId={
-                  activeSection as "welcome" | "onePagerP1" | "onePagerP2" | "chat"
-                }
-                onChange={updateDoc}
-              />
-            )}
-          </div>
-
-          <div className="hidden w-[46%] min-w-[360px] p-4 xl:block">
+        <BuilderSplitPane
+          previewPercent={previewSplit}
+          onPreviewPercentChange={handlePreviewSplitChange}
+          editor={
+            <>
+              {(error || message) && (
+                <div
+                  className={`mx-5 mt-4 rounded-xl border px-3 py-2 text-sm ${
+                    error
+                      ? "border-[var(--danger)]/40 bg-[var(--danger-soft)] text-[var(--danger)]"
+                      : "border-[var(--accent)]/30 bg-[var(--accent-soft)] text-[var(--accent)]"
+                  }`}
+                >
+                  {error || message}
+                </div>
+              )}
+              {activeSection === "title" ? (
+                <IdeatePanel document={document} onChange={updateDoc} />
+              ) : activeSection === "review" ? (
+                <ReviewPanel
+                  document={document}
+                  onJump={(id) => setActiveSection(id)}
+                  onPublish={() => void publish()}
+                />
+              ) : (
+                <SectionEditor
+                  document={document}
+                  sectionId={
+                    activeSection as "welcome" | "onePagerP1" | "onePagerP2" | "chat"
+                  }
+                  onChange={updateDoc}
+                />
+              )}
+            </>
+          }
+          preview={
             <PptPreview
               document={document}
               activeSection={activeSection}
               syncPreview={syncPreview}
               boxType={document.type}
             />
-          </div>
-        </div>
+          }
+        />
       </div>
     </AppShell>
   );

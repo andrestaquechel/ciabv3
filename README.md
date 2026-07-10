@@ -32,4 +32,4 @@ No Google OAuth required.
 
 ## Template
 
-Exports follow the Mini Box structure from `templates/mini-box-master.pptx` (7 slides: cover, welcome, dividers, one-pager, chat + GIF slots).
+Exports follow the **Shadow AI Mini Box** structure from `templates/mini-box-master.pptx` (7 slides: cover, welcome, dividers, one-pager, chat + GIF slots).
