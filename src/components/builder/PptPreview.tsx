@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import type { MiniBoxDocument, MiniBoxSectionId } from "@/lib/mini-box";
-import type { Presentation } from "pptx-viewer";
 
 const SLIDE_LABELS = [
   "Cover",
@@ -32,7 +31,7 @@ export function PptPreview({
   activeSection: MiniBoxSectionId;
 }) {
   const [index, setIndex] = useState(0);
-  const [presentation, setPresentation] = useState<Presentation | null>(null);
+  const [presentation, setPresentation] = useState<import("pptx-viewer").LoadedPresentation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const slideHostRef = useRef<HTMLDivElement>(null);
@@ -63,7 +62,10 @@ export function PptPreview({
 
         const { loadPresentation } = await import("pptx-viewer");
         const loaded = await loadPresentation(bytes.buffer);
-        setPresentation(loaded.presentation);
+        setPresentation((prev) => {
+          prev?.cleanup();
+          return loaded;
+        });
       } catch (err) {
         setPresentation(null);
         setError(err instanceof Error ? err.message : "Preview failed");
@@ -73,6 +75,12 @@ export function PptPreview({
     }, 400);
     return () => clearTimeout(timer);
   }, [document]);
+
+  useEffect(() => {
+    return () => {
+      presentation?.cleanup();
+    };
+  }, [presentation]);
 
   useEffect(() => {
     if (!presentation || !slideHostRef.current) return;
