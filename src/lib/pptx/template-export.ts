@@ -4,12 +4,19 @@ import path from "path";
 import type { MiniBoxDocument, GifSelection } from "@/lib/mini-box";
 import {
   fixSlideFormatting,
+  fixSlideLayout,
+  rebuildShapeParagraphs,
+  SLIDE_SHAPE_SIZES,
   TEMPLATE_FILE,
   TEMPLATE_NAME,
 } from "@/lib/pptx/slide-formatting";
 
 export { TEMPLATE_NAME, TEMPLATE_FILE };
-export { fixDividerSlideTitleFormatting, fixSlideFormatting } from "@/lib/pptx/slide-formatting";
+export {
+  fixDividerSlideTitleFormatting,
+  fixSlideFormatting,
+  fixSlideLayout,
+} from "@/lib/pptx/slide-formatting";
 
 const TEMPLATE_PATH = path.join(process.cwd(), "templates", TEMPLATE_FILE);
 
@@ -32,14 +39,6 @@ async function gifToBuffer(gif: GifSelection): Promise<Buffer | null> {
   }
 }
 
-function escapeXml(text: string) {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 function splitParagraphs(text: string) {
   return text.split(/\n/).filter(Boolean);
 }
@@ -49,6 +48,7 @@ function replaceShapeText(
   slideXml: string,
   shapeIndex: number,
   newText: string,
+  slideNum?: number,
 ): string {
   const shapeRegex = /<p:sp\b[\s\S]*?<\/p:sp>/g;
   const textShapes: string[] = [];
@@ -59,17 +59,13 @@ function replaceShapeText(
   if (shapeIndex >= textShapes.length) return slideXml;
 
   const oldShape = textShapes[shapeIndex];
-  const paras = splitParagraphs(newText);
-  const lines = paras.length ? paras : [newText];
+  const lines = splitParagraphs(newText);
+  if (!lines.length) return slideXml;
 
-  let paraIdx = 0;
-  const newShape = oldShape.replace(/<a:p[\s\S]*?<\/a:p>/g, (para) => {
-    const line = lines[paraIdx] ?? "";
-    paraIdx += 1;
-    return para.replace(/<a:t[^>]*>[\s\S]*?<\/a:t>/g, () =>
-      `<a:t>${escapeXml(line)}</a:t>`,
-    );
-  });
+  const sz =
+    (slideNum !== undefined && SLIDE_SHAPE_SIZES[slideNum]?.[shapeIndex]) ||
+    1100;
+  const newShape = rebuildShapeParagraphs(oldShape, lines, sz);
 
   return slideXml.replace(oldShape, newShape);
 }
@@ -114,7 +110,7 @@ export async function buildMiniBoxFromTemplate(
 
     for (const [shapeIdxStr, text] of Object.entries(shapeMap)) {
       if (!text?.trim()) continue;
-      xml = replaceShapeText(xml, Number(shapeIdxStr), text);
+      xml = replaceShapeText(xml, Number(shapeIdxStr), text, slideNum);
     }
     zip.file(slidePath, xml);
   }
@@ -125,14 +121,16 @@ export async function buildMiniBoxFromTemplate(
     let xml = await zip.file("ppt/slides/slide2.xml")!.async("string");
     const s2 = doc.sections;
     const combined = [s2.welcome.contents, closing].filter(Boolean).join("\n\n");
-    xml = replaceShapeText(xml, 2, combined);
+    xml = replaceShapeText(xml, 2, combined, 2);
     zip.file("ppt/slides/slide2.xml", xml);
   }
 
   for (let slideNum = 1; slideNum <= 7; slideNum += 1) {
     const slidePath = `ppt/slides/slide${slideNum}.xml`;
-    const xml = await zip.file(slidePath)!.async("string");
-    zip.file(slidePath, fixSlideFormatting(slideNum, xml));
+    let xml = await zip.file(slidePath)!.async("string");
+    xml = fixSlideLayout(slideNum, xml);
+    xml = fixSlideFormatting(slideNum, xml);
+    zip.file(slidePath, xml);
   }
 
   const gifs: Array<[number, GifSelection]> = [
