@@ -91,23 +91,12 @@ export function rebuildShapeParagraphs(
 function ensureRunsHaveVisibleText(shapeXml: string, sz: number): string {
   const rPr = buildRunPr(sz);
 
-  let result = shapeXml.replace(
-    /<a:r>(\s*)<a:t>/g,
-    `<a:r>${rPr}<a:t>`,
-  );
-
+  let result = shapeXml.replace(/<a:r>\s*<a:t>/g, `<a:r>${rPr}<a:t>`);
   result = result.replace(/<a:rPr lang="en"\/>/g, rPr);
-
-  result = result.replace(/<a:rPr([^>]*?)>/g, (full, attrs) => {
-    if (attrs.includes("sz=") && full.includes("solidFill")) return full;
-    if (full.includes("solidFill")) {
-      if (attrs.includes("sz=")) return full;
-      return `<a:rPr${attrs} sz="${sz}">`;
-    }
-    return `<a:rPr${attrs} sz="${sz}">${FILL_BLACK}${FONT_INTER}`;
-  });
-
-  result = result.replace(/<a:endParaRPr\/>/g, `<a:endParaRPr sz="${sz}">${FILL_BLACK}${FONT_INTER}</a:endParaRPr>`);
+  result = result.replace(
+    /<a:endParaRPr\/>/g,
+    `<a:endParaRPr sz="${sz}">${FILL_BLACK}${FONT_INTER}</a:endParaRPr>`,
+  );
 
   return result;
 }
