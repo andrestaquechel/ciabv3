@@ -10,6 +10,8 @@ type GiphyGif = {
   };
 };
 
+const GIF_SEARCH_LIMIT = 30;
+
 const MOCK_GIFS = [
   {
     id: "mock-1",
@@ -101,6 +103,96 @@ const MOCK_GIFS = [
     url: "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
     previewUrl: "https://media.giphy.com/media/26u4cqiYI30juCOGY/200.gif",
   },
+  {
+    id: "mock-16",
+    title: "Thumbs up",
+    url: "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/111ebonMs90YLu/200.gif",
+  },
+  {
+    id: "mock-17",
+    title: "Mind blown",
+    url: "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/200.gif",
+  },
+  {
+    id: "mock-18",
+    title: "Computer",
+    url: "https://media.giphy.com/media/26BRv0ThflsHCqDrG/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/26BRv0ThflsHCqDrG/200.gif",
+  },
+  {
+    id: "mock-19",
+    title: "Hacker",
+    url: "https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/3o7abKhOpu0NwenH3O/200.gif",
+  },
+  {
+    id: "mock-20",
+    title: "Oops",
+    url: "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/200.gif",
+  },
+  {
+    id: "mock-21",
+    title: "Reading",
+    url: "https://media.giphy.com/media/l0HlBO7eyXgtkmJsc/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/l0HlBO7eyXgtkmJsc/200.gif",
+  },
+  {
+    id: "mock-22",
+    title: "High five",
+    url: "https://media.giphy.com/media/5GoVLqeAi99PG/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/5GoVLqeAi99PG/200.gif",
+  },
+  {
+    id: "mock-23",
+    title: "Wait what",
+    url: "https://media.giphy.com/media/13CoXDiaFdCoyE/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/13CoXDiaFdCoyE/200.gif",
+  },
+  {
+    id: "mock-24",
+    title: "Work mode",
+    url: "https://media.giphy.com/media/l3q2K5jinAlChoCLS/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/l3q2K5jinAlChoCLS/200.gif",
+  },
+  {
+    id: "mock-25",
+    title: "Password",
+    url: "https://media.giphy.com/media/Is1O1TWV0LEJi/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/Is1O1TWV0LEJi/200.gif",
+  },
+  {
+    id: "mock-26",
+    title: "Phishing",
+    url: "https://media.giphy.com/media/3o6Zt481isNVuBI1U4/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/3o6Zt481isNVuBI1U4/200.gif",
+  },
+  {
+    id: "mock-27",
+    title: "Meeting",
+    url: "https://media.giphy.com/media/3o7abldet0l7XEJT3O/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/3o7abldet0l7XEJT3O/200.gif",
+  },
+  {
+    id: "mock-28",
+    title: "Inbox",
+    url: "https://media.giphy.com/media/3o7TKSjRrfIPjeiVy/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/3o7TKSjRrfIPjeiVy/200.gif",
+  },
+  {
+    id: "mock-29",
+    title: "Focus mode",
+    url: "https://media.giphy.com/media/l0MYGb1LuPD3LenPy/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/l0MYGb1LuPD3LenPy/200.gif",
+  },
+  {
+    id: "mock-30",
+    title: "Approved",
+    url: "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
+    previewUrl: "https://media.giphy.com/media/26u4cqiYI30juCOGY/200.gif",
+  },
 ];
 
 export async function GET(request: Request) {
@@ -112,7 +204,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       source: "mock",
       query: q,
-      results: MOCK_GIFS.map((g) => ({ ...g, query: q })),
+      results: MOCK_GIFS.slice(0, GIF_SEARCH_LIMIT).map((g) => ({ ...g, query: q })),
       note: "Add GIPHY_API_KEY to .env.local for live search.",
     });
   }
@@ -121,7 +213,7 @@ export async function GET(request: Request) {
     const url = new URL("https://api.giphy.com/v1/gifs/search");
     url.searchParams.set("api_key", apiKey);
     url.searchParams.set("q", q);
-    url.searchParams.set("limit", "15");
+    url.searchParams.set("limit", String(GIF_SEARCH_LIMIT));
     url.searchParams.set("rating", "pg-13");
     url.searchParams.set("lang", "en");
 
