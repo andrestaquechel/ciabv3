@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
 import { AppShell } from "@/components/layout/AppShell";
 import { DriveFolderPicker } from "@/components/knowledge/DriveFolderPicker";
+import { AnnualTopicCalendarPanel } from "@/components/knowledge/AnnualTopicCalendarPanel";
 import {
   getFolderConfig,
   setFolderConfig,
@@ -46,10 +47,11 @@ type DriveFolder = {
 };
 
 type BrowseCrumb = { id: string; name: string };
+type KnowledgeTab = "annual-calendar" | BoxType;
 
 export default function KnowledgePage() {
   const { data: session, status } = useSession();
-  const [boxType, setBoxType] = useState<BoxType>("mini-box");
+  const [activeTab, setActiveTab] = useState<KnowledgeTab>("annual-calendar");
   const [folderInput, setFolderInput] = useState("");
   const [showPicker, setShowPicker] = useState(false);
   const [folders, setFolders] = useState<DriveEntry[]>([]);
@@ -72,8 +74,11 @@ export default function KnowledgePage() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const folderConfig = useMemo(
-    () => getFolderConfig(boxType),
-    [boxType, refreshKey],
+    () =>
+      activeTab === "annual-calendar"
+        ? null
+        : getFolderConfig(activeTab),
+    [activeTab, refreshKey],
   );
 
   const loadBrowse = useCallback(async (folderId: string) => {
@@ -112,8 +117,8 @@ export default function KnowledgePage() {
   }, [status]);
 
   useEffect(() => {
-    if (!folderConfig?.folderId || status !== "authenticated") {
-      if (!folderConfig?.folderId) {
+    if (activeTab === "annual-calendar" || !folderConfig?.folderId || status !== "authenticated") {
+      if (activeTab !== "annual-calendar" && !folderConfig?.folderId) {
         setArchiveIndex(null);
       }
       return;
@@ -128,12 +133,12 @@ export default function KnowledgePage() {
     void loadBrowse(folderConfig.folderId);
 
     void (async () => {
-      const local = loadKnowledgeIndex(boxType, folderConfig.folderId);
+      const local = loadKnowledgeIndex(activeTab, folderConfig.folderId);
       if (local) setArchiveIndex(local);
 
       try {
         const res = await fetch(
-          `/api/knowledge/index/stored?folderId=${encodeURIComponent(folderConfig.folderId)}&boxType=${encodeURIComponent(boxType)}`,
+          `/api/knowledge/index/stored?folderId=${encodeURIComponent(folderConfig.folderId)}&boxType=${encodeURIComponent(activeTab)}`,
           { cache: "no-store" },
         );
         if (!res.ok) return;
@@ -146,7 +151,7 @@ export default function KnowledgePage() {
         // keep local cache if Drive fetch fails
       }
     })();
-  }, [boxType, status, folderConfig?.folderId, folderConfig?.folderName, loadBrowse]);
+  }, [activeTab, status, folderConfig?.folderId, folderConfig?.folderName, loadBrowse]);
 
   function openSubfolder(folder: DriveEntry) {
     setBrowseFolderId(folder.id);
@@ -163,6 +168,7 @@ export default function KnowledgePage() {
   }
 
   function applyFolder(folder: DriveFolder) {
+    if (activeTab === "annual-calendar") return;
     const config = {
       folderId: folder.id,
       folderUrl:
@@ -171,8 +177,8 @@ export default function KnowledgePage() {
       folderName: folder.name,
       setAt: new Date().toISOString(),
     };
-    setFolderConfig(boxType, config);
-    const merged = { ...loadKnowledgeSettings(), [boxType]: config };
+    setFolderConfig(activeTab, config);
+    const merged = { ...loadKnowledgeSettings(), [activeTab]: config };
     saveKnowledgeSettings(merged);
     void saveAppSettings({ knowledgeFolders: merged }).catch(() => {});
     setFolderInput("");
@@ -219,7 +225,7 @@ export default function KnowledgePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           folderId: folderConfig.folderId,
-          boxType,
+          boxType: activeTab,
           stream: true,
         }),
       });
@@ -291,7 +297,7 @@ export default function KnowledgePage() {
           } else if (event.type === "complete" && event.documents) {
             completePayload = {
               folderId: event.folderId || folderConfig.folderId,
-              boxType: event.boxType || boxType,
+              boxType: event.boxType || activeTab,
               indexedAt: event.indexedAt || new Date().toISOString(),
               documents: event.documents,
             };
@@ -327,8 +333,9 @@ export default function KnowledgePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
-          boxType,
+          boxType: activeTab,
           folderId: folderConfig.folderId,
+          index: archiveIndex?.documents,
         }),
       });
       const data = await res.json();
@@ -352,25 +359,33 @@ export default function KnowledgePage() {
       }
     >
       <div className="flex h-full min-h-0">
-        <div className="flex w-[200px] shrink-0 flex-col gap-1 border-r border-[var(--border)] p-3">
-          {(["mini-box", "ciab"] as BoxType[]).map((type) => (
+        <div className="flex w-[220px] shrink-0 flex-col gap-1 border-r border-[var(--border)] p-3">
+          {(
+            [
+              { id: "annual-calendar" as const, label: "Annual Topic Calendar" },
+              { id: "mini-box" as const, label: "Mini Box" },
+              { id: "ciab" as const, label: "CIAB" },
+            ] as const
+          ).map((tab) => (
             <button
-              key={type}
+              key={tab.id}
               type="button"
-              onClick={() => setBoxType(type)}
-              className={`rounded-xl px-3 py-2.5 text-left text-sm ${
-                boxType === type
+              onClick={() => setActiveTab(tab.id)}
+              className={`rounded-xl px-3 py-2.5 text-left text-sm leading-snug ${
+                activeTab === tab.id
                   ? "bg-[var(--accent-soft)] text-[var(--accent)]"
                   : "text-[var(--text-muted)] hover:bg-[var(--bg-soft)]"
               }`}
             >
-              {type === "mini-box" ? "Mini Box" : "CIAB"}
+              {tab.label}
             </button>
           ))}
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {status !== "authenticated" ? (
+          {activeTab === "annual-calendar" ? (
+            <AnnualTopicCalendarPanel />
+          ) : status !== "authenticated" ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8">
               <p className="text-sm text-[var(--text-muted)]">
                 Connect Google to browse Drive folders and ask questions.
@@ -387,7 +402,7 @@ export default function KnowledgePage() {
             <div className="mx-auto max-w-lg flex-1 overflow-auto p-8 scrollbar-thin">
               <h2 className="text-lg font-medium">
                 {folderConfig ? "Change" : "Set"}{" "}
-                {boxType === "mini-box" ? "Mini Box" : "CIAB"} archive folder
+                {activeTab === "mini-box" ? "Mini Box" : "CIAB"} archive folder
               </h2>
               <p className="mt-2 text-sm text-[var(--text-muted)]">
                 Browse your Google Drive folders or paste a folder link.

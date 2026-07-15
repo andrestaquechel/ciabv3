@@ -50,9 +50,13 @@ export async function POST(request: Request) {
 
     let indexed = body.index?.filter((d) => d.text?.trim()) ?? [];
     if (indexed.length === 0) {
-      const stored = await loadKnowledgeIndexFromDrive(folderId);
-      if (stored?.boxType === body.boxType) {
-        indexed = stored.documents.filter((d) => d.text?.trim());
+      try {
+        const stored = await loadKnowledgeIndexFromDrive(folderId);
+        if (stored?.boxType === body.boxType) {
+          indexed = stored.documents.filter((d) => d.text?.trim());
+        }
+      } catch {
+        // Drive read failed — client may still send index in body
       }
     }
 

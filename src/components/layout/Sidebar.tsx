@@ -15,11 +15,11 @@ import {
 import { useShell } from "@/components/layout/ShellContext";
 
 const nav = [
+  { href: "/features-needed", label: "Features NEEDED", icon: ClipboardList },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/builder", label: "Box Builder", icon: Boxes },
   { href: "/analytics", label: "Analytics", icon: BarChart3, disabled: true },
   { href: "/knowledge", label: "Knowledge Base", icon: BookOpen },
-  { href: "/features-needed", label: "Features NEEDED", icon: ClipboardList },
 ];
 
 export function Sidebar() {

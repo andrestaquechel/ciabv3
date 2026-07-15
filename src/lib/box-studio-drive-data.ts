@@ -5,6 +5,7 @@ const DATA_FOLDER_NAME = "Box Studio Data";
 const META_FOLDER_NAME = ".box-studio";
 const APP_SETTINGS_FILE = "app-settings.json";
 const KNOWLEDGE_INDEX_FILE = "knowledge-index.json";
+const ANNUAL_CALENDARS_FILE = "annual-topic-calendars.json";
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
@@ -59,8 +60,8 @@ async function ensureFolder(parentId: string, name: string): Promise<string> {
   return created.data.id;
 }
 
-/** Shared team folder for app settings (env override or auto-created in My Drive). */
-export async function getSharedDataFolderId(): Promise<string> {
+/** Read-only lookup — never creates folders (safe with drive.readonly tokens). */
+async function findSharedDataFolderId(): Promise<string | null> {
   const fromEnv = process.env.BOX_STUDIO_DATA_FOLDER_ID?.trim();
   if (fromEnv) return fromEnv;
 
@@ -72,9 +73,15 @@ export async function getSharedDataFolderId(): Promise<string> {
     supportsAllDrives: true,
     includeItemsFromAllDrives: true,
   });
-  const existing = res.data.files?.[0]?.id;
+  return res.data.files?.[0]?.id ?? null;
+}
+
+/** Shared team folder for app settings (env override or auto-created in My Drive). */
+export async function getSharedDataFolderId(): Promise<string> {
+  const existing = await findSharedDataFolderId();
   if (existing) return existing;
 
+  const drive = await getDriveClient();
   const created = await drive.files.create({
     requestBody: {
       name: DATA_FOLDER_NAME,
@@ -86,6 +93,12 @@ export async function getSharedDataFolderId(): Promise<string> {
   });
   if (!created.data.id) throw new Error("Could not create Box Studio Data folder.");
   return created.data.id;
+}
+
+async function findArchiveMetaFolderId(
+  archiveFolderId: string,
+): Promise<string | null> {
+  return findChildByName(archiveFolderId, META_FOLDER_NAME, FOLDER_MIME);
 }
 
 export async function ensureArchiveMetaFolder(archiveFolderId: string): Promise<string> {
@@ -144,7 +157,8 @@ async function upsertJsonFile(
 }
 
 export async function loadAppSettingsFromDrive(): Promise<AppSettingsPayload | null> {
-  const dataFolderId = await getSharedDataFolderId();
+  const dataFolderId = await findSharedDataFolderId();
+  if (!dataFolderId) return null;
   const fileId = await findChildByName(dataFolderId, APP_SETTINGS_FILE);
   if (!fileId) return null;
   return readJsonFile<AppSettingsPayload>(fileId);
@@ -167,7 +181,8 @@ export async function saveAppSettingsToDrive(
 export async function loadKnowledgeIndexFromDrive(
   archiveFolderId: string,
 ): Promise<import("@/lib/knowledge-cache").KnowledgeIndex | null> {
-  const metaFolderId = await ensureArchiveMetaFolder(archiveFolderId);
+  const metaFolderId = await findArchiveMetaFolderId(archiveFolderId);
+  if (!metaFolderId) return null;
   const fileId = await findChildByName(metaFolderId, KNOWLEDGE_INDEX_FILE);
   if (!fileId) return null;
   return readJsonFile(fileId);
@@ -178,4 +193,41 @@ export async function saveKnowledgeIndexToDrive(
 ): Promise<void> {
   const metaFolderId = await ensureArchiveMetaFolder(index.folderId);
   await upsertJsonFile(metaFolderId, KNOWLEDGE_INDEX_FILE, index);
+}
+
+export type AnnualCalendarYear = {
+  year: number;
+  imageDataUrl?: string;
+  notes?: string;
+  sourceFileName?: string;
+  updatedAt: string;
+  updatedBy?: string;
+};
+
+export type AnnualCalendarsPayload = {
+  calendars: Record<string, AnnualCalendarYear>;
+  updatedAt?: string;
+  updatedBy?: string;
+};
+
+export async function loadAnnualCalendarsFromDrive(): Promise<AnnualCalendarsPayload | null> {
+  const dataFolderId = await findSharedDataFolderId();
+  if (!dataFolderId) return null;
+  const fileId = await findChildByName(dataFolderId, ANNUAL_CALENDARS_FILE);
+  if (!fileId) return null;
+  return readJsonFile<AnnualCalendarsPayload>(fileId);
+}
+
+export async function saveAnnualCalendarsToDrive(
+  payload: AnnualCalendarsPayload,
+  updatedBy?: string,
+): Promise<AnnualCalendarsPayload> {
+  const dataFolderId = await getSharedDataFolderId();
+  const next: AnnualCalendarsPayload = {
+    ...payload,
+    updatedAt: new Date().toISOString(),
+    updatedBy,
+  };
+  await upsertJsonFile(dataFolderId, ANNUAL_CALENDARS_FILE, next);
+  return next;
 }
