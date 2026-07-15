@@ -30,7 +30,7 @@ import { signIn, signOut, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 
 export default function SettingsPage() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [settings, setSettings] = useState(loadKnowledgeSettings());
   const [miniBoxUrl, setMiniBoxUrl] = useState(
     settings["mini-box"]?.folderUrl ?? "",
@@ -67,13 +67,18 @@ export default function SettingsPage() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!session?.accessToken) {
+    if (status !== "authenticated" || !session?.user) {
       setLoadingSettings(false);
       return;
     }
     void (async () => {
       try {
-        const remote = await fetchAppSettings();
+        let remote = null;
+        try {
+          remote = await fetchAppSettings();
+        } catch {
+          // Drive settings optional for this page
+        }
         if (remote?.knowledgeFolders) {
           const merged = { ...loadKnowledgeSettings(), ...remote.knowledgeFolders };
           saveKnowledgeSettings(merged);
@@ -98,7 +103,9 @@ export default function SettingsPage() {
         setCsmUserIds(resolvedSlack.csmUserIds.join(", "));
         setMorganUserId(resolvedSlack.morganUserId);
 
-        const driveStatus = await fetch("/api/setup/server-drive").then((r) => r.json());
+        const driveStatus = await fetch("/api/setup/server-drive")
+          .then((r) => r.json())
+          .catch(() => null);
         setServerDriveStatus(driveStatus);
       } catch (err) {
         setSettingsError(
@@ -108,7 +115,9 @@ export default function SettingsPage() {
         setLoadingSettings(false);
       }
     })();
-  }, [session?.accessToken]);
+  }, [session?.user, status]);
+
+  const signedIn = status === "authenticated" && Boolean(session?.user);
 
   function slackReviewPayload() {
     return {
@@ -770,7 +779,21 @@ Examples:
   topics | help | [topic name]`}
               </pre>
             </div>
-            {session?.accessToken && serverDriveStatus && (
+            {signedIn && (
+              <div className="rounded-xl border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-4 text-sm">
+                <p className="font-medium">Server Drive for Slack</p>
+                <p className="mt-1 text-[var(--text-muted)]">
+                  Required for Slack button workflows. One-click install to Vercel.
+                </p>
+                <a
+                  href="/setup/server-drive"
+                  className="mt-3 inline-block rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white"
+                >
+                  Open Server Drive setup →
+                </a>
+              </div>
+            )}
+            {signedIn && serverDriveStatus && (
               <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-4 text-xs">
                 <div className="font-medium text-[var(--text-dim)]">
                   Server Drive (Slack workflow persistence)
