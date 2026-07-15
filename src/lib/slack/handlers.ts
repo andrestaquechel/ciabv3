@@ -30,6 +30,7 @@ import {
   findSlackWorkflowIdByThread,
   loadAppSettingsFromDrive,
 } from "@/lib/box-studio-drive-data";
+import { resolveSlackReview } from "@/lib/slack/review-settings";
 
 type SlackFile = { id: string; mimetype?: string; filetype?: string };
 type SlackEvent = {
@@ -489,7 +490,7 @@ export async function handleThreadReply({
   if (!workflowId) return;
 
   const settings = await loadAppSettingsFromDrive();
-  const morganId = settings?.slackReview?.morganUserId;
+  const { morganUserId: morganId } = resolveSlackReview(settings?.slackReview);
   if (morganId && userId && userId !== morganId) return;
 
   await handleApplyCsmFeedback({ workflowId, channel, threadTs });

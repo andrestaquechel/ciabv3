@@ -9,6 +9,7 @@ import {
   type SlackWorkflowRecord,
 } from "@/lib/box-studio-drive-data";
 import { draftToMiniBoxDocument, slidePreviewText } from "@/lib/slack/draft-document";
+import { resolveSlackReview } from "@/lib/slack/review-settings";
 import { slackPostMessage, slackUploadFile } from "@/lib/slack/api";
 import { csmReviewBlocks } from "@/lib/slack/blocks";
 
@@ -49,7 +50,8 @@ export async function startCsmReview({
   const pptxBuffer = await buildMiniBoxFromTemplate(doc);
   const filename = pptxFilename(doc);
   const settings = await loadAppSettingsFromDrive();
-  const mentions = csmMentionLine(settings?.slackReview?.csmUserIds);
+  const { csmUserIds } = resolveSlackReview(settings?.slackReview);
+  const mentions = csmMentionLine(csmUserIds);
   const preview = slidePreviewText(doc);
 
   await slackPostMessage({

@@ -6,6 +6,7 @@ import {
   type AppSettingsPayload,
 } from "@/lib/box-studio-drive-data";
 import { isValidClaudeModel, resolveClaudeModel } from "@/lib/claude-models";
+import { resolveSlackReview } from "@/lib/slack/review-settings";
 
 export async function GET() {
   const session = await auth();
@@ -22,7 +23,8 @@ export async function GET() {
       settings.claudeModel,
       process.env.ANTHROPIC_MODEL,
     );
-    return NextResponse.json({ ...settings, claudeModel });
+    const slackReview = resolveSlackReview(settings.slackReview);
+    return NextResponse.json({ ...settings, claudeModel, slackReview });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to load app settings.";

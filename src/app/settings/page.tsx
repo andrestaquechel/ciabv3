@@ -22,6 +22,10 @@ import {
   DEFAULT_TOPIC_RESEARCH_PROMPTS,
   type TopicResearchPromptsConfig,
 } from "@/lib/mini-box-topic-prompts";
+import {
+  DEFAULT_SLACK_REVIEW,
+  resolveSlackReview,
+} from "@/lib/slack/review-settings";
 import { signIn, signOut, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 
@@ -40,8 +44,12 @@ export default function SettingsPage() {
   );
   const [topicResearchPrompts, setTopicResearchPrompts] =
     useState<TopicResearchPromptsConfig>(DEFAULT_TOPIC_RESEARCH_PROMPTS);
-  const [csmUserIds, setCsmUserIds] = useState("");
-  const [morganUserId, setMorganUserId] = useState("");
+  const [csmUserIds, setCsmUserIds] = useState(
+    DEFAULT_SLACK_REVIEW.csmUserIds.join(", "),
+  );
+  const [morganUserId, setMorganUserId] = useState<string>(
+    DEFAULT_SLACK_REVIEW.morganUserId,
+  );
   const [slackMembers, setSlackMembers] = useState<
     Array<{ id: string; realName: string; displayName: string; title?: string }>
   >([]);
@@ -77,10 +85,9 @@ export default function SettingsPage() {
             ...remote.topicResearchPrompts,
           });
         }
-        if (remote?.slackReview) {
-          setCsmUserIds((remote.slackReview.csmUserIds || []).join(", "));
-          setMorganUserId(remote.slackReview.morganUserId || "");
-        }
+        const resolvedSlack = resolveSlackReview(remote?.slackReview);
+        setCsmUserIds(resolvedSlack.csmUserIds.join(", "));
+        setMorganUserId(resolvedSlack.morganUserId);
       } catch (err) {
         setSettingsError(
           err instanceof Error ? err.message : "Could not load shared settings.",
@@ -608,6 +615,31 @@ ANTHROPIC_MODEL=claude-sonnet-4-6`}
             </div>
             <div>
               <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+                Request URLs (Slack app config)
+              </div>
+              <ul className="mt-2 space-y-1 font-mono text-xs text-[var(--text)]">
+                <li>
+                  Event Subscriptions:{" "}
+                  <span className="text-[var(--accent)]">
+                    https://ciabv2-gilt.vercel.app/api/webhooks/slack/events
+                  </span>
+                </li>
+                <li>
+                  Interactivity:{" "}
+                  <span className="text-[var(--accent)]">
+                    https://ciabv2-gilt.vercel.app/api/webhooks/slack/interactions
+                  </span>
+                </li>
+              </ul>
+              <p className="mt-2 text-xs text-[var(--text-muted)]">
+                Enable Event Subscriptions, subscribe to bot events{" "}
+                <code>app_mention</code>, <code>message.im</code>,{" "}
+                <code>message.channels</code>, <code>message.groups</code>, then
+                click Retry after deploy.
+              </p>
+            </div>
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
                 Slash command (optional)
               </div>
               <pre className="mt-2 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3 text-xs text-[var(--text)]">
@@ -627,6 +659,11 @@ Examples:
                 <div className="text-xs font-medium text-[var(--text-dim)]">
                   CSM &amp; Morgan (Slack user IDs — Profile → ⋮ → Copy member ID)
                 </div>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Defaults are pre-filled (Morgan + Amber, Elise, Nick). Save here
+                  to override in Drive; clear a field and save to revert Morgan to
+                  default.
+                </p>
                 <label className="block text-xs">
                   CSM user IDs (comma-separated)
                   <input
@@ -668,6 +705,16 @@ Examples:
                     className="rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] disabled:opacity-50"
                   >
                     Find CSMs
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCsmUserIds(DEFAULT_SLACK_REVIEW.csmUserIds.join(", "));
+                      setMorganUserId(DEFAULT_SLACK_REVIEW.morganUserId);
+                    }}
+                    className="rounded-lg border border-[var(--border)] px-2 py-1 text-[11px]"
+                  >
+                    Reset to defaults
                   </button>
                 </div>
                 {slackMembers.length > 0 && (
