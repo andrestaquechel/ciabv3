@@ -42,6 +42,10 @@ export default function SettingsPage() {
     useState<TopicResearchPromptsConfig>(DEFAULT_TOPIC_RESEARCH_PROMPTS);
   const [csmUserIds, setCsmUserIds] = useState("");
   const [morganUserId, setMorganUserId] = useState("");
+  const [slackMembers, setSlackMembers] = useState<
+    Array<{ id: string; realName: string; displayName: string; title?: string }>
+  >([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
@@ -213,6 +217,38 @@ export default function SettingsPage() {
         err instanceof Error ? err.message : "Could not save Slack review settings.",
       );
     }
+  }
+
+  async function fetchSlackMembers(query = "") {
+    setLoadingMembers(true);
+    setSettingsError(null);
+    try {
+      const url = query
+        ? `/api/slack/members?q=${encodeURIComponent(query)}`
+        : "/api/slack/members";
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not load Slack members.");
+      setSlackMembers(data.members || []);
+    } catch (err) {
+      setSettingsError(
+        err instanceof Error ? err.message : "Could not load Slack members.",
+      );
+      setSlackMembers([]);
+    } finally {
+      setLoadingMembers(false);
+    }
+  }
+
+  function appendCsmId(id: string) {
+    const ids = new Set(
+      csmUserIds
+        .split(/[,;\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
+    ids.add(id);
+    setCsmUserIds(Array.from(ids).join(", "));
   }
 
   function resetTopicResearchPrompts() {
@@ -566,6 +602,8 @@ ANTHROPIC_MODEL=claude-sonnet-4-6`}
                 <li><code>groups:history</code> — private channels the bot is in</li>
                 <li><code>commands</code> — optional slash command</li>
                 <li><code>files:write</code> — upload PPTX to threads</li>
+                <li><code>users:read</code> — list members for CSM/Morgan picker</li>
+                <li><code>users:read.email</code> — optional, show emails in picker</li>
               </ul>
             </div>
             <div>
@@ -614,6 +652,51 @@ Examples:
                 >
                   Save Slack review settings
                 </button>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={loadingMembers}
+                    onClick={() => void fetchSlackMembers("morgan")}
+                    className="rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] disabled:opacity-50"
+                  >
+                    Find Morgan
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loadingMembers}
+                    onClick={() => void fetchSlackMembers("success")}
+                    className="rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] disabled:opacity-50"
+                  >
+                    Find CSMs
+                  </button>
+                </div>
+                {slackMembers.length > 0 && (
+                  <ul className="max-h-40 space-y-1 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-2 text-[11px]">
+                    {slackMembers.map((m) => (
+                      <li key={m.id} className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-[var(--accent)]">{m.id}</span>
+                        <span>
+                          {m.realName || m.displayName}
+                          {m.title ? ` · ${m.title}` : ""}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setMorganUserId(m.id)}
+                          className="text-[var(--text-muted)] underline"
+                        >
+                          Morgan
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => appendCsmId(m.id)}
+                          className="text-[var(--text-muted)] underline"
+                        >
+                          +CSM
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
             <div>
