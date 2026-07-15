@@ -2,7 +2,6 @@ import { randomUUID } from "crypto";
 import {
   monthCiabTopic,
   monthMiniBoxTopics,
-  MONTH_LABELS,
   parseMonthInput,
 } from "@/lib/annual-calendar-types";
 import {
@@ -18,6 +17,133 @@ import {
   newboxTypeBlocks,
 } from "@/lib/slack/newbox-blocks";
 
+export type NewboxWizardResponse = {
+  workflowId: string;
+  text: string;
+  blocks: unknown[];
+  /** When true, topic research runs async in channel */
+  async?: boolean;
+};
+
+async function persistNewWorkflow(
+  workflow: SlackWorkflowRecord,
+  channel: string,
+  threadTs?: string,
+) {
+  try {
+    await saveSlackWorkflowToDrive(workflow);
+    if (threadTs) await registerSlackWorkflowThread(channel, threadTs, workflow.id);
+  } catch {
+    // continue — buttons may fail without Drive
+  }
+}
+
+/** Build slash-command response with interactive blocks (buttons / month dropdown). */
+export async function buildNewboxWizardResponse({
+  channel,
+  threadTs,
+  userId,
+  parsed,
+}: {
+  channel: string;
+  threadTs?: string;
+  userId?: string;
+  parsed?: {
+    boxType?: "mini-box" | "ciab";
+    month?: string;
+  };
+}): Promise<NewboxWizardResponse> {
+  const workflowId = randomUUID();
+  const year = new Date().getFullYear();
+  const workflow: SlackWorkflowRecord = {
+    id: workflowId,
+    boxType: parsed?.boxType || "mini-box",
+    status: "newbox_setup",
+    slackChannel: channel,
+    slackThreadTs: threadTs,
+    targetYear: year,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    createdBy: userId,
+  };
+
+  await persistNewWorkflow(workflow, channel, threadTs);
+
+  if (parsed?.boxType && parsed?.month) {
+    const month = parseMonthInput(parsed.month, year);
+    if (month) {
+      if (parsed.boxType === "mini-box") {
+        void runTopicResearchAsync({
+          channel,
+          threadTs,
+          userId,
+          workflowId,
+          monthNumber: month.monthNumber,
+          monthLabel: month.monthLabel,
+          year: month.year,
+        });
+        return {
+          workflowId,
+          async: true,
+          text: `Researching Mini Box topics for *${month.monthLabel}*…`,
+          blocks: [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: `Researching 6 Mini Box topics for *${month.monthLabel}* — I'll post the table here in about a minute.`,
+              },
+            },
+          ],
+        };
+      }
+      void handleNewboxMonthSelect({
+        workflowId,
+        monthNumber: month.monthNumber,
+        monthLabel: month.monthLabel,
+        year: month.year,
+        channel,
+        threadTs,
+        userId,
+        boxType: "ciab",
+      });
+      return {
+        workflowId,
+        async: true,
+        text: `Loading CIAB topic for *${month.monthLabel}*…`,
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `Loading *${month.monthLabel}* CIAB calendar topic…`,
+            },
+          },
+        ],
+      };
+    }
+  }
+
+  if (parsed?.boxType) {
+    return {
+      workflowId,
+      text: `New ${parsed.boxType === "ciab" ? "CIAB" : "Mini Box"} — select month`,
+      blocks: newboxMonthBlocks(workflowId, parsed.boxType),
+    };
+  }
+
+  return {
+    workflowId,
+    text: "New box wizard — choose Mini Box or CIAB",
+    blocks: newboxTypeBlocks(workflowId),
+  };
+}
+
+async function runTopicResearchAsync(args: Parameters<typeof import("@/lib/slack/handlers").runTopicResearchForMonth>[0]) {
+  const { runTopicResearchForMonth } = await import("@/lib/slack/handlers");
+  await runTopicResearchForMonth(args);
+}
+
 export async function startNewboxWizard({
   channel,
   threadTs,
@@ -32,74 +158,21 @@ export async function startNewboxWizard({
     month?: string;
   };
 }) {
-  const workflowId = randomUUID();
-  const now = new Date().getFullYear();
-  const workflow: SlackWorkflowRecord = {
-    id: workflowId,
-    boxType: parsed?.boxType || "mini-box",
-    status: "newbox_setup",
-    slackChannel: channel,
-    slackThreadTs: threadTs,
-    targetYear: now,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    createdBy: userId,
-  };
-
-  try {
-    await saveSlackWorkflowToDrive(workflow);
-    if (threadTs) await registerSlackWorkflowThread(channel, threadTs, workflowId);
-  } catch {
-    // continue — buttons may fail without Drive
-  }
-
-  if (parsed?.boxType && parsed?.month) {
-    const month = parseMonthInput(parsed.month, now);
-    if (month) {
-      if (parsed.boxType === "mini-box") {
-        const { runTopicResearchForMonth } = await import("@/lib/slack/handlers");
-        await runTopicResearchForMonth({
-          channel,
-          threadTs,
-          userId,
-          workflowId,
-          monthNumber: month.monthNumber,
-          monthLabel: month.monthLabel,
-          year: month.year,
-        });
-        return { workflowId, skippedWizard: true };
-      }
-      await handleNewboxMonthSelect({
-        workflowId,
-        monthNumber: month.monthNumber,
-        monthLabel: month.monthLabel,
-        year: month.year,
-        channel,
-        threadTs,
-        userId,
-        boxType: "ciab",
-      });
-      return { workflowId, skippedWizard: true };
-    }
-  }
-
-  if (parsed?.boxType) {
+  const response = await buildNewboxWizardResponse({
+    channel,
+    threadTs,
+    userId,
+    parsed,
+  });
+  if (!response.async) {
     await slackPostMessage({
       channel,
       threadTs,
-      text: `New ${parsed.boxType === "ciab" ? "CIAB" : "Mini Box"} — select month`,
-      blocks: newboxMonthBlocks(workflowId, parsed.boxType),
+      text: response.text,
+      blocks: response.blocks,
     });
-    return { workflowId, skippedWizard: false };
   }
-
-  await slackPostMessage({
-    channel,
-    threadTs,
-    text: "New box wizard — choose Mini Box or CIAB",
-    blocks: newboxTypeBlocks(workflowId),
-  });
-  return { workflowId, skippedWizard: false };
+  return response;
 }
 
 export async function handleNewboxTypeSelect({

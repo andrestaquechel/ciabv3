@@ -6,7 +6,7 @@ export function newboxTypeBlocks(workflowId: string) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "*New box wizard* — What are you creating?",
+        text: "*New box wizard* — What are you creating?\n_Shortcuts: `/newbox mini-box july` · `/newbox ciab march`_",
       },
     },
     {

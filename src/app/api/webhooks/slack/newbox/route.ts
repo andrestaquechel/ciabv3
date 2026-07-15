@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { assertSlackSignature } from "@/lib/slack/verify";
-import { startNewboxWizard } from "@/lib/slack/newbox-handlers";
+import { buildNewboxWizardResponse } from "@/lib/slack/newbox-handlers";
 import { parseMonthInput } from "@/lib/annual-calendar-types";
 
 export const runtime = "nodejs";
@@ -11,17 +11,6 @@ function parseSlackBody(rawBody: string, contentType: string | null) {
   }
   return Object.fromEntries(new URLSearchParams(rawBody));
 }
-
-const HELP_TEXT = `*New box wizard* (\`/newbox\`)
-1. Choose *Mini Box* or *CIAB*
-2. Pick a month (dropdown or type month name)
-3. Mini Box → 6 topics in a table → select → outline → full box → CSM review
-
-*Shortcuts:*
-• \`/newbox\` — step-by-step wizard
-• \`/newbox mini-box july\` — skip to July topic research
-• \`/newbox ciab march\` — show March CIAB calendar topic
-• \`/newbox help\` — this message`;
 
 export async function POST(request: Request) {
   const rawBody = await request.text();
@@ -37,13 +26,6 @@ export async function POST(request: Request) {
     const parts = rawText.split(/\s+/).filter(Boolean);
     const sub = parts[0]?.toLowerCase();
 
-    if (!rawText || sub === "help") {
-      return NextResponse.json({
-        response_type: "ephemeral",
-        text: HELP_TEXT,
-      });
-    }
-
     let boxType: "mini-box" | "ciab" | undefined;
     if (sub === "mini-box" || sub === "minibox" || sub === "mini") {
       boxType = "mini-box";
@@ -51,38 +33,35 @@ export async function POST(request: Request) {
       boxType = "ciab";
     }
 
-    const monthArg = boxType ? parts.slice(1).join(" ") : parts.join(" ");
+    const monthArg =
+      sub === "help" || !rawText
+        ? undefined
+        : boxType
+          ? parts.slice(1).join(" ")
+          : parts.join(" ");
     const month = monthArg ? parseMonthInput(monthArg) : null;
 
-    if (payload.channel_id) {
-      void startNewboxWizard({
-        channel: payload.channel_id,
-        threadTs: payload.message_ts || undefined,
-        userId: payload.user_id,
-        parsed: {
-          boxType,
-          month: month ? String(month.monthNumber) : monthArg || undefined,
-        },
+    if (!payload.channel_id) {
+      return NextResponse.json({
+        response_type: "ephemeral",
+        text: "Missing channel context.",
       });
     }
 
-    if (boxType && month) {
-      return NextResponse.json({
-        response_type: "ephemeral",
-        text: `Starting ${boxType === "ciab" ? "CIAB" : "Mini Box"} for *${month.monthLabel}*…`,
-      });
-    }
-
-    if (boxType) {
-      return NextResponse.json({
-        response_type: "ephemeral",
-        text: `${boxType === "ciab" ? "CIAB" : "Mini Box"} selected — pick a month in the channel.`,
-      });
-    }
+    // /newbox, /newbox help, and shortcuts all launch the interactive wizard
+    const wizard = await buildNewboxWizardResponse({
+      channel: payload.channel_id,
+      userId: payload.user_id,
+      parsed: {
+        boxType: sub === "help" || !rawText ? undefined : boxType,
+        month: month ? String(month.monthNumber) : monthArg || undefined,
+      },
+    });
 
     return NextResponse.json({
-      response_type: "ephemeral",
-      text: "Starting new box wizard — choose Mini Box or CIAB in the channel.",
+      response_type: "in_channel",
+      text: wizard.text,
+      blocks: wizard.blocks,
     });
   } catch (error) {
     const message =
