@@ -5,7 +5,6 @@ const DATA_FOLDER_NAME = "Box Studio Data";
 const META_FOLDER_NAME = ".box-studio";
 const APP_SETTINGS_FILE = "app-settings.json";
 const KNOWLEDGE_INDEX_FILE = "knowledge-index.json";
-const ANNUAL_CALENDARS_FILE = "annual-topic-calendars.json";
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
@@ -193,41 +192,4 @@ export async function saveKnowledgeIndexToDrive(
 ): Promise<void> {
   const metaFolderId = await ensureArchiveMetaFolder(index.folderId);
   await upsertJsonFile(metaFolderId, KNOWLEDGE_INDEX_FILE, index);
-}
-
-export type AnnualCalendarYear = {
-  year: number;
-  imageDataUrl?: string;
-  notes?: string;
-  sourceFileName?: string;
-  updatedAt: string;
-  updatedBy?: string;
-};
-
-export type AnnualCalendarsPayload = {
-  calendars: Record<string, AnnualCalendarYear>;
-  updatedAt?: string;
-  updatedBy?: string;
-};
-
-export async function loadAnnualCalendarsFromDrive(): Promise<AnnualCalendarsPayload | null> {
-  const dataFolderId = await findSharedDataFolderId();
-  if (!dataFolderId) return null;
-  const fileId = await findChildByName(dataFolderId, ANNUAL_CALENDARS_FILE);
-  if (!fileId) return null;
-  return readJsonFile<AnnualCalendarsPayload>(fileId);
-}
-
-export async function saveAnnualCalendarsToDrive(
-  payload: AnnualCalendarsPayload,
-  updatedBy?: string,
-): Promise<AnnualCalendarsPayload> {
-  const dataFolderId = await getSharedDataFolderId();
-  const next: AnnualCalendarsPayload = {
-    ...payload,
-    updatedAt: new Date().toISOString(),
-    updatedBy,
-  };
-  await upsertJsonFile(dataFolderId, ANNUAL_CALENDARS_FILE, next);
-  return next;
 }

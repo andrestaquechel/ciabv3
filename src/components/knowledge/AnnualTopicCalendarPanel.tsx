@@ -1,34 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { signIn, useSession } from "next-auth/react";
-import type { AnnualCalendarYear, AnnualCalendarsPayload } from "@/lib/box-studio-drive-data";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  getAnnualCalendarYear,
+  loadAnnualCalendars,
+  saveAnnualCalendarYear,
+  type AnnualCalendarsStore,
+} from "@/lib/annual-calendar-store";
 import {
   Calendar,
   ChevronLeft,
   ChevronRight,
   ClipboardPaste,
   ImagePlus,
-  Loader2,
   Trash2,
 } from "lucide-react";
 
 const MAX_IMAGE_BYTES = 8_000_000;
-const LOCAL_CACHE_KEY = "box-studio:annual-calendars";
-
-function readLocalCache(): AnnualCalendarsPayload {
-  if (typeof window === "undefined") return { calendars: {} };
-  try {
-    const raw = localStorage.getItem(LOCAL_CACHE_KEY);
-    return raw ? (JSON.parse(raw) as AnnualCalendarsPayload) : { calendars: {} };
-  } catch {
-    return { calendars: {} };
-  }
-}
-
-function writeLocalCache(payload: AnnualCalendarsPayload) {
-  localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(payload));
-}
 
 function readImageFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -55,39 +43,17 @@ function yearRange(current: number, stored: number[]) {
 }
 
 export function AnnualTopicCalendarPanel() {
-  const { status } = useSession();
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
-  const [store, setStore] = useState<AnnualCalendarsPayload>({ calendars: {} });
+  const [store, setStore] = useState<AnnualCalendarsStore>({ calendars: {} });
   const [notes, setNotes] = useState("");
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    const local = readLocalCache();
-    setStore(local);
-    try {
-      const res = await fetch("/api/knowledge/annual-calendar", { cache: "no-store" });
-      if (res.ok) {
-        const remote = (await res.json()) as AnnualCalendarsPayload;
-        setStore(remote);
-        writeLocalCache(remote);
-      }
-    } catch {
-      // keep local cache
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    if (status === "authenticated") void refresh();
-    else setLoading(false);
-  }, [status, refresh]);
+    setStore(loadAnnualCalendars());
+  }, []);
 
   const years = useMemo(
     () =>
@@ -98,13 +64,13 @@ export function AnnualTopicCalendarPanel() {
     [currentYear, store.calendars],
   );
 
-  const entry: AnnualCalendarYear | undefined = store.calendars[String(selectedYear)];
+  const entry = getAnnualCalendarYear(selectedYear) ?? store.calendars[String(selectedYear)];
 
   useEffect(() => {
     setNotes(entry?.notes ?? "");
   }, [selectedYear, entry?.notes]);
 
-  async function saveYear(
+  function saveYear(
     patch: Partial<{
       imageDataUrl: string | null;
       notes: string;
@@ -115,21 +81,13 @@ export function AnnualTopicCalendarPanel() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/knowledge/annual-calendar", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          year: selectedYear,
-          notes: patch.notes ?? notes,
-          imageDataUrl: patch.imageDataUrl,
-          sourceFileName: patch.sourceFileName,
-          clearImage: patch.clearImage,
-        }),
+      const next = saveAnnualCalendarYear(selectedYear, {
+        notes: patch.notes ?? notes,
+        imageDataUrl: patch.imageDataUrl,
+        sourceFileName: patch.sourceFileName,
+        clearImage: patch.clearImage,
       });
-      const data = (await res.json()) as AnnualCalendarsPayload & { error?: string };
-      if (!res.ok) throw new Error(data.error || "Could not save calendar.");
-      setStore(data);
-      writeLocalCache(data);
+      setStore(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save calendar.");
     } finally {
@@ -141,7 +99,7 @@ export function AnnualTopicCalendarPanel() {
     if (!file) return;
     try {
       const dataUrl = await readImageFile(file);
-      await saveYear({ imageDataUrl: dataUrl, sourceFileName: file.name });
+      saveYear({ imageDataUrl: dataUrl, sourceFileName: file.name });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not attach file.");
     }
@@ -155,23 +113,6 @@ export function AnnualTopicCalendarPanel() {
     e.preventDefault();
     const file = item.getAsFile();
     if (file) void attachFile(file);
-  }
-
-  if (status !== "authenticated") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8">
-        <p className="text-sm text-[var(--text-muted)]">
-          Connect Google to view and save the team annual topic calendar.
-        </p>
-        <button
-          type="button"
-          onClick={() => signIn("google", { callbackUrl: "/knowledge" })}
-          className="rounded-xl bg-[var(--accent-strong)] px-4 py-2 text-sm text-white"
-        >
-          Connect Google
-        </button>
-      </div>
-    );
   }
 
   return (
@@ -232,11 +173,7 @@ export function AnnualTopicCalendarPanel() {
           onPaste={handlePaste}
         >
           <div className="flex min-h-[320px] flex-col rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-4">
-            {loading ? (
-              <div className="flex flex-1 items-center justify-center">
-                <Loader2 size={24} className="animate-spin text-[var(--text-dim)]" />
-              </div>
-            ) : entry?.imageDataUrl ? (
+            {entry?.imageDataUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={entry.imageDataUrl}
@@ -262,8 +199,8 @@ export function AnnualTopicCalendarPanel() {
 
           <div className="space-y-3">
             <p className="text-xs text-[var(--text-muted)]">
-              Upload the yearly topic calendar (image or PDF). Saved to shared
-              Google Drive so the whole team sees the same plan.
+              Upload the yearly topic calendar (image or PDF). Saved in the app
+              on this browser — no Google Drive file is created.
             </p>
             <input
               ref={fileInputRef}
@@ -295,7 +232,7 @@ export function AnnualTopicCalendarPanel() {
             <button
               type="button"
               disabled={saving}
-              onClick={() => void saveYear({ notes })}
+              onClick={() => saveYear({ notes })}
               className="w-full rounded-xl bg-[var(--accent-strong)] px-4 py-2 text-sm text-white disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save notes"}
@@ -304,7 +241,7 @@ export function AnnualTopicCalendarPanel() {
               <button
                 type="button"
                 disabled={saving}
-                onClick={() => void saveYear({ clearImage: true })}
+                onClick={() => saveYear({ clearImage: true })}
                 className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--danger)] disabled:opacity-50"
               >
                 <Trash2 size={14} />
