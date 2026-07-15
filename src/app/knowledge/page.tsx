@@ -215,7 +215,8 @@ export default function KnowledgePage() {
   }
 
   async function buildArchiveIndex() {
-    if (!folderConfig?.folderId) return;
+    if (!folderConfig?.folderId || activeTab === "annual-calendar") return;
+    const indexingBoxType: BoxType = activeTab;
     setIndexing(true);
     setIndexProgress({ current: 0, total: 0, fileName: "", phase: "scanning" });
     setError(null);
@@ -225,7 +226,7 @@ export default function KnowledgePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           folderId: folderConfig.folderId,
-          boxType: activeTab,
+          boxType: indexingBoxType,
           stream: true,
         }),
       });
@@ -297,7 +298,7 @@ export default function KnowledgePage() {
           } else if (event.type === "complete" && event.documents) {
             completePayload = {
               folderId: event.folderId || folderConfig.folderId,
-              boxType: event.boxType || activeTab,
+              boxType: event.boxType || indexingBoxType,
               indexedAt: event.indexedAt || new Date().toISOString(),
               documents: event.documents,
             };
@@ -323,7 +324,10 @@ export default function KnowledgePage() {
   }
 
   async function ask() {
-    if (!folderConfig?.folderId || !question.trim()) return;
+    if (!folderConfig?.folderId || !question.trim() || activeTab === "annual-calendar") {
+      return;
+    }
+    const queryBoxType: BoxType = activeTab;
     setAsking(true);
     setError(null);
     setAnswer(null);
@@ -333,7 +337,7 @@ export default function KnowledgePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
-          boxType: activeTab,
+          boxType: queryBoxType,
           folderId: folderConfig.folderId,
           index: archiveIndex?.documents,
         }),
