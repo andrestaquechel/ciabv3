@@ -8,6 +8,8 @@ import {
 import { saveGeneratedDraftToDrive } from "@/lib/box-studio-drive-data";
 import { randomUUID } from "crypto";
 
+export const runtime = "nodejs";
+
 function parseSlackBody(rawBody: string, contentType: string | null) {
   if (contentType?.includes("application/json")) {
     return JSON.parse(rawBody) as Record<string, string>;
@@ -18,6 +20,16 @@ function parseSlackBody(rawBody: string, contentType: string | null) {
 function appBaseUrl() {
   return process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://ciabv2-gilt.vercel.app";
 }
+
+const HELP_TEXT = `*Mini Box slash commands*
+• \`/mini-box topics\` — research 6 topic candidates (same as @CIAB_Slack_App topics)
+• \`/mini-box help\` — show this message
+• \`/mini-box Shadow AI\` — quick-generate a full box for a topic (skips topic picker)
+
+*Recommended flow in a channel thread:*
+1. \`/mini-box topics\` or @mention *topics*
+2. Select a topic → review outline → Approve
+3. CSMs review PPTX in thread → Morgan clicks *Apply CSM feedback*`;
 
 export async function POST(request: Request) {
   const rawBody = await request.text();
@@ -33,7 +45,13 @@ export async function POST(request: Request) {
     const subcommand = rawText.split(/\s+/)[0]?.toLowerCase();
     const topic = rawText.replace(/^\/\w+\s*/i, "").replace(/^topics?\s*/i, "").trim();
 
-    // /mini-box topics
+    if (subcommand === "help" || rawText === "help") {
+      return NextResponse.json({
+        response_type: "ephemeral",
+        text: HELP_TEXT,
+      });
+    }
+
     if (!topic || subcommand === "topics" || subcommand === "topic") {
       if (payload.response_url && payload.channel_id) {
         void runTopicResearch({
@@ -51,11 +69,11 @@ export async function POST(request: Request) {
     const requester = payload.user_name || payload.user_id || "slack";
     const outlineResult = await generateOutline({
       topic,
-      notes: `Slack request from ${requester}`,
+      notes: `Slack slash command from ${requester}`,
     });
     const full = await generateFullMiniBox({
       topic,
-      notes: `Slack request from ${requester}`,
+      notes: `Slack slash command from ${requester}`,
       outline: outlineResult.outline,
     });
 
@@ -92,7 +110,7 @@ export async function POST(request: Request) {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `<${openUrl}|Open in Box Studio to review, pick GIFs, and publish>`,
+            text: `<${openUrl}|Open in Box Studio>`,
           },
         },
       ],

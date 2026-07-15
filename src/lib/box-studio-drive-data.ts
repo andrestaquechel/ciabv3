@@ -19,6 +19,14 @@ export type AppSettingsPayload = {
   generationPrompts?: GenerationPromptsConfig;
   topicResearchPrompts?: TopicResearchPromptsConfig;
   annualCalendars?: AnnualCalendarsConfig;
+  slackReview?: {
+    /** Slack user IDs (U…) to @mention for CSM review */
+    csmUserIds?: string[];
+    /** Slack user ID for Morgan — can click Apply CSM feedback */
+    morganUserId?: string;
+  };
+  /** Maps `${channelId}:${threadTs}` → workflow id */
+  slackActiveThreads?: Record<string, string>;
   knowledgeFolders?: {
     "mini-box"?: {
       folderId: string;
@@ -308,4 +316,32 @@ export async function saveAnnualCalendarToDrive(
   const dataFolderId = await getSharedDataFolderId();
   await upsertJsonFile(dataFolderId, APP_SETTINGS_FILE, next);
   return next;
+}
+
+export async function registerSlackWorkflowThread(
+  channel: string,
+  threadTs: string,
+  workflowId: string,
+): Promise<void> {
+  const existing = (await loadAppSettingsFromDrive()) ?? {};
+  const threadKey = `${channel}:${threadTs}`;
+  const next: AppSettingsPayload = {
+    ...existing,
+    slackActiveThreads: {
+      ...existing.slackActiveThreads,
+      [threadKey]: workflowId,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  const dataFolderId = await getSharedDataFolderId();
+  await upsertJsonFile(dataFolderId, APP_SETTINGS_FILE, next);
+}
+
+export async function findSlackWorkflowIdByThread(
+  channel: string,
+  threadTs: string,
+): Promise<string | null> {
+  const settings = await loadAppSettingsFromDrive();
+  const threadKey = `${channel}:${threadTs}`;
+  return settings?.slackActiveThreads?.[threadKey] ?? null;
 }

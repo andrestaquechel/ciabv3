@@ -40,7 +40,7 @@ export async function POST(request: Request) {
 
   after(async () => {
     try {
-      await handleSlackEventPayload(payload);
+      await handleSlackEventPayload(JSON.parse(rawBody) as Parameters<typeof handleSlackEventPayload>[0]);
     } catch (err) {
       console.error("Slack event handler error:", err);
     }

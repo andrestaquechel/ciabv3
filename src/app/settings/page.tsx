@@ -40,6 +40,8 @@ export default function SettingsPage() {
   );
   const [topicResearchPrompts, setTopicResearchPrompts] =
     useState<TopicResearchPromptsConfig>(DEFAULT_TOPIC_RESEARCH_PROMPTS);
+  const [csmUserIds, setCsmUserIds] = useState("");
+  const [morganUserId, setMorganUserId] = useState("");
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
@@ -71,6 +73,10 @@ export default function SettingsPage() {
             ...remote.topicResearchPrompts,
           });
         }
+        if (remote?.slackReview) {
+          setCsmUserIds((remote.slackReview.csmUserIds || []).join(", "));
+          setMorganUserId(remote.slackReview.morganUserId || "");
+        }
       } catch (err) {
         setSettingsError(
           err instanceof Error ? err.message : "Could not load shared settings.",
@@ -80,6 +86,16 @@ export default function SettingsPage() {
       }
     })();
   }, [session?.accessToken]);
+
+  function slackReviewPayload() {
+    return {
+      csmUserIds: csmUserIds
+        .split(/[,;\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+      morganUserId: morganUserId.trim() || undefined,
+    };
+  }
 
   async function persistRemote(
     nextSettings: typeof settings,
@@ -93,6 +109,7 @@ export default function SettingsPage() {
       knowledgeFolders: nextSettings,
       generationPrompts: nextPrompts,
       topicResearchPrompts: nextTopicPrompts,
+      slackReview: slackReviewPayload(),
     });
   }
 
@@ -130,6 +147,7 @@ export default function SettingsPage() {
         knowledgeFolders: settings,
         generationPrompts,
         topicResearchPrompts,
+        slackReview: slackReviewPayload(),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -148,6 +166,7 @@ export default function SettingsPage() {
         knowledgeFolders: settings,
         generationPrompts,
         topicResearchPrompts,
+        slackReview: slackReviewPayload(),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -166,12 +185,32 @@ export default function SettingsPage() {
         knowledgeFolders: settings,
         generationPrompts,
         topicResearchPrompts,
+        slackReview: slackReviewPayload(),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
       setSettingsError(
         err instanceof Error ? err.message : "Could not save topic research prompts.",
+      );
+    }
+  }
+
+  async function saveSlackReviewSettings() {
+    setSettingsError(null);
+    try {
+      await saveAppSettings({
+        claudeModel,
+        knowledgeFolders: settings,
+        generationPrompts,
+        topicResearchPrompts,
+        slackReview: slackReviewPayload(),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setSettingsError(
+        err instanceof Error ? err.message : "Could not save Slack review settings.",
       );
     }
   }
@@ -526,9 +565,57 @@ ANTHROPIC_MODEL=claude-sonnet-4-6`}
                 <li><code>channels:history</code> — read thread context (public channels)</li>
                 <li><code>groups:history</code> — private channels the bot is in</li>
                 <li><code>commands</code> — optional slash command</li>
-                <li><code>users:read</code> — future CSM @mentions</li>
+                <li><code>files:write</code> — upload PPTX to threads</li>
               </ul>
             </div>
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+                Slash command (optional)
+              </div>
+              <pre className="mt-2 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3 text-xs text-[var(--text)]">
+{`Command:        /mini-box
+Request URL:    https://ciabv2-gilt.vercel.app/api/webhooks/slack
+Short Description: Research topics and generate Mini Boxes
+Usage Hint:     topics | help | [topic name]
+
+Examples:
+  /mini-box topics
+  /mini-box help
+  /mini-box Shadow AI`}
+              </pre>
+            </div>
+            {session?.accessToken && (
+              <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-4">
+                <div className="text-xs font-medium text-[var(--text-dim)]">
+                  CSM &amp; Morgan (Slack user IDs — Profile → ⋮ → Copy member ID)
+                </div>
+                <label className="block text-xs">
+                  CSM user IDs (comma-separated)
+                  <input
+                    value={csmUserIds}
+                    onChange={(e) => setCsmUserIds(e.target.value)}
+                    placeholder="U012ABC, U345DEF"
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1.5 font-mono text-xs"
+                  />
+                </label>
+                <label className="block text-xs">
+                  Morgan user ID
+                  <input
+                    value={morganUserId}
+                    onChange={(e) => setMorganUserId(e.target.value)}
+                    placeholder="U012ABC"
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1.5 font-mono text-xs"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void saveSlackReviewSettings()}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs"
+                >
+                  Save Slack review settings
+                </button>
+              </div>
+            )}
             <div>
               <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
                 Event Subscriptions → Request URL
@@ -538,7 +625,9 @@ ANTHROPIC_MODEL=claude-sonnet-4-6`}
 
 Subscribe to bot events:
 • app_mention
-• message.im`}
+• message.im
+• message.channels
+• message.groups`}
               </pre>
             </div>
             <div>
@@ -547,14 +636,6 @@ Subscribe to bot events:
               </div>
               <pre className="mt-2 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3 text-xs text-[var(--text)]">
 {`https://ciabv2-gilt.vercel.app/api/webhooks/slack/interactions`}
-              </pre>
-            </div>
-            <div>
-              <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
-                Slash command (optional)
-              </div>
-              <pre className="mt-2 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3 text-xs text-[var(--text)]">
-{`/mini-box → https://ciabv2-gilt.vercel.app/api/webhooks/slack`}
               </pre>
             </div>
             <div>

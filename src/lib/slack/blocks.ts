@@ -127,7 +127,60 @@ export function fullBoxReadyBlocks(
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `<${openUrl}|Open in Box Studio to review GIFs, CSM feedback, and publish>`,
+        text: `<${openUrl}|Open in Box Studio>`,
+      },
+    },
+  ];
+}
+
+export function csmReviewBlocks(
+  workflowId: string,
+  slidePreview: string,
+  csmMentions: string,
+) {
+  const header = csmMentions
+    ? `${csmMentions}\n\nPlease review this Mini Box draft. Reply in this thread with changes.`
+    : "Please review this Mini Box draft. Reply in this thread with changes.";
+
+  return [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: header },
+    },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: slidePreview },
+    },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: "PowerPoint attached below ↑ — Morgan can click *Apply CSM feedback* when ready.",
+        },
+      ],
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          action_id: `apply_csm_feedback:${workflowId}`,
+          text: { type: "plain_text", text: "Apply CSM feedback → final draft", emoji: true },
+          style: "primary",
+        },
+      ],
+    },
+  ];
+}
+
+export function finalDraftBlocks(topic: string, openUrl: string) {
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Final Mini Box:* ${topic}\nCSM feedback applied. Final PPTX attached above.\n<${openUrl}|Open in Box Studio to publish>`,
       },
     },
   ];

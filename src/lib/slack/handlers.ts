@@ -10,6 +10,7 @@ import { generateTopicCandidates } from "@/lib/mini-box-topic-research";
 import type { TopicCandidate } from "@/lib/mini-box-topic-prompts";
 import {
   loadSlackWorkflowFromDrive,
+  registerSlackWorkflowThread,
   saveAnnualCalendarToDrive,
   saveGeneratedDraftToDrive,
   saveSlackWorkflowToDrive,
@@ -23,6 +24,12 @@ import {
   outlineReviewBlocks,
   topicCandidatesBlocks,
 } from "@/lib/slack/blocks";
+import { startCsmReview } from "@/lib/slack/csm-review";
+import { applyCsmFeedbackAndFinalize } from "@/lib/slack/morgan-review";
+import {
+  findSlackWorkflowIdByThread,
+  loadAppSettingsFromDrive,
+} from "@/lib/box-studio-drive-data";
 
 type SlackFile = { id: string; mimetype?: string; filetype?: string };
 type SlackEvent = {
@@ -98,7 +105,19 @@ export async function handleSlackEventPayload(payload: SlackEvent) {
 
   if (event.type === "app_mention" || event.type === "message") {
     const isDm = event.channel.startsWith("D");
-    if (event.type === "message" && !isDm) return;
+    const inThread = Boolean(event.thread_ts);
+
+    if (inThread && event.thread_ts && text.trim()) {
+      await handleThreadReply({
+        channel,
+        threadTs: event.thread_ts,
+        text,
+        userId: event.user,
+      });
+      if (!isDm && event.type === "message") return;
+    }
+
+    if (event.type === "message" && !isDm && !inThread) return;
 
     if (isTopicResearchCommand(text)) {
       await runTopicResearch({ channel, threadTs, userId: event.user });
@@ -196,6 +215,7 @@ export async function runTopicResearch({
 
   try {
     await saveSlackWorkflowToDrive(workflow);
+    await registerSlackWorkflowThread(channel, threadTs, workflowId);
   } catch {
     // continue if Drive unavailable
   }
@@ -328,6 +348,8 @@ export async function generateAndPostFullBox({
   if (full.note) {
     await slackPostMessage({ channel, threadTs, text: full.note });
   }
+
+  await startCsmReview({ workflow, channel, threadTs });
 }
 
 export async function handleTopicSelection({
@@ -415,6 +437,64 @@ export async function handleOutlineRegenerate({
   await generateAndPostOutline({ workflow, channel, threadTs });
 }
 
+export async function handleApplyCsmFeedback({
+  workflowId,
+  channel,
+  threadTs,
+}: {
+  workflowId: string;
+  channel: string;
+  threadTs: string;
+}) {
+  const workflow = await loadSlackWorkflowFromDrive(workflowId);
+  if (!workflow) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: "Workflow not found.",
+    });
+    return;
+  }
+
+  try {
+    await applyCsmFeedbackAndFinalize({ workflow, channel, threadTs });
+  } catch (err) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `Failed to apply feedback: ${err instanceof Error ? err.message : "unknown error"}`,
+    });
+  }
+}
+
+export async function handleThreadReply({
+  channel,
+  threadTs,
+  text,
+  userId,
+}: {
+  channel: string;
+  threadTs: string;
+  text: string;
+  userId?: string;
+}) {
+  const normalized = text.toLowerCase().replace(/<@[^>]+>/g, "").trim();
+  const isApplyCommand =
+    /\b(apply csm|apply feedback|make those csm|make those changes|finalize)\b/.test(
+      normalized,
+    );
+  if (!isApplyCommand) return;
+
+  const workflowId = await findSlackWorkflowIdByThread(channel, threadTs);
+  if (!workflowId) return;
+
+  const settings = await loadAppSettingsFromDrive();
+  const morganId = settings?.slackReview?.morganUserId;
+  if (morganId && userId && userId !== morganId) return;
+
+  await handleApplyCsmFeedback({ workflowId, channel, threadTs });
+}
+
 export async function handleBlockActions(payload: {
   actions?: Array<{ action_id: string; value?: string }>;
   channel?: { id: string };
@@ -454,5 +534,12 @@ export async function handleBlockActions(payload: {
     const workflowId = action.action_id.split(":")[1];
     if (!workflowId) return;
     await handleOutlineRegenerate({ workflowId, channel, threadTs });
+    return;
+  }
+
+  if (action.action_id.startsWith("apply_csm_feedback:")) {
+    const workflowId = action.action_id.split(":")[1];
+    if (!workflowId || !threadTs) return;
+    await handleApplyCsmFeedback({ workflowId, channel, threadTs });
   }
 }

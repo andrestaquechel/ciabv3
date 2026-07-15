@@ -65,6 +65,14 @@ export async function PUT(request: Request) {
         ...existing.annualCalendars,
         ...body.annualCalendars,
       },
+      slackReview: {
+        ...existing.slackReview,
+        ...body.slackReview,
+      },
+      slackActiveThreads: {
+        ...existing.slackActiveThreads,
+        ...body.slackActiveThreads,
+      },
     };
 
     const saved = await saveAppSettingsToDrive(

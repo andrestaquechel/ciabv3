@@ -72,3 +72,61 @@ export function imageMediaType(
   if (mime.includes("webp")) return "image/webp";
   return "image/png";
 }
+
+export async function slackGetThreadReplies(channel: string, threadTs: string) {
+  const url = new URL("https://slack.com/api/conversations.replies");
+  url.searchParams.set("channel", channel);
+  url.searchParams.set("ts", threadTs);
+  url.searchParams.set("limit", "100");
+
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${botToken()}` },
+  });
+  const data = (await res.json()) as {
+    ok: boolean;
+    error?: string;
+    messages?: Array<{
+      ts: string;
+      user?: string;
+      text?: string;
+      bot_id?: string;
+    }>;
+  };
+  if (!data.ok) throw new Error(data.error || "Could not read thread.");
+  return data.messages ?? [];
+}
+
+export async function slackUploadFile({
+  channel,
+  threadTs,
+  buffer,
+  filename,
+  initialComment,
+}: {
+  channel: string;
+  threadTs?: string;
+  buffer: Buffer;
+  filename: string;
+  initialComment: string;
+}) {
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([new Uint8Array(buffer)], {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    }),
+    filename,
+  );
+  form.append("channels", channel);
+  form.append("initial_comment", initialComment);
+  if (threadTs) form.append("thread_ts", threadTs);
+
+  const res = await fetch("https://slack.com/api/files.upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${botToken()}` },
+    body: form,
+  });
+  const data = (await res.json()) as { ok: boolean; error?: string };
+  if (!data.ok) throw new Error(data.error || "Slack file upload failed.");
+  return data;
+}

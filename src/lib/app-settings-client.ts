@@ -11,6 +11,10 @@ export type AppSettingsResponse = {
   generationPrompts?: GenerationPromptsConfig;
   topicResearchPrompts?: TopicResearchPromptsConfig;
   annualCalendars?: import("@/lib/annual-calendar-types").AnnualCalendarsConfig;
+  slackReview?: {
+    csmUserIds?: string[];
+    morganUserId?: string;
+  };
   knowledgeFolders?: KnowledgeSettings;
   updatedAt?: string;
   updatedBy?: string;
@@ -26,7 +30,7 @@ export async function fetchAppSettings(): Promise<AppSettingsResponse | null> {
 export async function saveAppSettings(
   payload: Pick<
     AppSettingsResponse,
-    "claudeModel" | "knowledgeFolders" | "generationPrompts" | "topicResearchPrompts"
+    "claudeModel" | "knowledgeFolders" | "generationPrompts" | "topicResearchPrompts" | "slackReview"
   >,
 ): Promise<AppSettingsResponse | null> {
   const res = await fetch("/api/app-settings", {
