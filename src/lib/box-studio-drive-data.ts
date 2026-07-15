@@ -5,11 +5,20 @@ const DATA_FOLDER_NAME = "Box Studio Data";
 const META_FOLDER_NAME = ".box-studio";
 const APP_SETTINGS_FILE = "app-settings.json";
 const KNOWLEDGE_INDEX_FILE = "knowledge-index.json";
+const DRAFTS_FOLDER = "generated-drafts";
+const SLACK_WORKFLOWS_FOLDER = "slack-workflows";
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
+import type { GenerationPromptsConfig } from "@/lib/mini-box-prompts";
+import type { AnnualCalendarsConfig } from "@/lib/annual-calendar-types";
+import type { TopicResearchPromptsConfig } from "@/lib/mini-box-topic-prompts";
+
 export type AppSettingsPayload = {
   claudeModel?: string;
+  generationPrompts?: GenerationPromptsConfig;
+  topicResearchPrompts?: TopicResearchPromptsConfig;
+  annualCalendars?: AnnualCalendarsConfig;
   knowledgeFolders?: {
     "mini-box"?: {
       folderId: string;
@@ -192,4 +201,111 @@ export async function saveKnowledgeIndexToDrive(
 ): Promise<void> {
   const metaFolderId = await ensureArchiveMetaFolder(index.folderId);
   await upsertJsonFile(metaFolderId, KNOWLEDGE_INDEX_FILE, index);
+}
+
+export type GeneratedBoxDraft = {
+  id: string;
+  topic: string;
+  createdAt: string;
+  createdBy?: string;
+  source?: string;
+  outline?: unknown;
+  sections: import("@/lib/mini-box-generate").GeneratedMiniBoxSections;
+  gifs?: {
+    welcome: import("@/lib/mini-box").GifSelection;
+    onePager: import("@/lib/mini-box").GifSelection;
+    chat: import("@/lib/mini-box").GifSelection;
+  };
+};
+
+async function ensureDraftsFolder(): Promise<string> {
+  const dataFolderId = await getSharedDataFolderId();
+  return ensureFolder(dataFolderId, DRAFTS_FOLDER);
+}
+
+export async function saveGeneratedDraftToDrive(
+  draft: GeneratedBoxDraft,
+): Promise<void> {
+  const folderId = await ensureDraftsFolder();
+  await upsertJsonFile(folderId, `${draft.id}.json`, draft);
+}
+
+export async function loadGeneratedDraftFromDrive(
+  draftId: string,
+): Promise<GeneratedBoxDraft | null> {
+  const dataFolderId = await findSharedDataFolderId();
+  if (!dataFolderId) return null;
+  const draftsFolderId = await findChildByName(dataFolderId, DRAFTS_FOLDER, FOLDER_MIME);
+  if (!draftsFolderId) return null;
+  const fileId = await findChildByName(draftsFolderId, `${draftId}.json`);
+  if (!fileId) return null;
+  return readJsonFile<GeneratedBoxDraft>(fileId);
+}
+
+export type SlackWorkflowRecord = {
+  id: string;
+  boxType: "mini-box" | "ciab";
+  status:
+    | "topic_selection"
+    | "outline"
+    | "full_draft"
+    | "csm_review"
+    | "morgan_review"
+    | "published";
+  slackChannel: string;
+  slackThreadTs?: string;
+  topicCandidates?: import("@/lib/mini-box-topic-prompts").TopicCandidate[];
+  selectedTopic?: import("@/lib/mini-box-topic-prompts").TopicCandidate;
+  outline?: import("@/lib/mini-box-prompts").MiniBoxOutline;
+  draftId?: string;
+  monthlyCiabTopic?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+};
+
+async function ensureSlackWorkflowsFolder(): Promise<string> {
+  const dataFolderId = await getSharedDataFolderId();
+  return ensureFolder(dataFolderId, SLACK_WORKFLOWS_FOLDER);
+}
+
+export async function saveSlackWorkflowToDrive(
+  workflow: SlackWorkflowRecord,
+): Promise<void> {
+  const folderId = await ensureSlackWorkflowsFolder();
+  await upsertJsonFile(folderId, `${workflow.id}.json`, workflow);
+}
+
+export async function loadSlackWorkflowFromDrive(
+  workflowId: string,
+): Promise<SlackWorkflowRecord | null> {
+  const dataFolderId = await findSharedDataFolderId();
+  if (!dataFolderId) return null;
+  const folderId = await findChildByName(
+    dataFolderId,
+    SLACK_WORKFLOWS_FOLDER,
+    FOLDER_MIME,
+  );
+  if (!folderId) return null;
+  const fileId = await findChildByName(folderId, `${workflowId}.json`);
+  if (!fileId) return null;
+  return readJsonFile<SlackWorkflowRecord>(fileId);
+}
+
+export async function saveAnnualCalendarToDrive(
+  calendar: import("@/lib/annual-calendar-types").ParsedAnnualCalendar,
+): Promise<AppSettingsPayload> {
+  const existing = (await loadAppSettingsFromDrive()) ?? {};
+  const key = String(calendar.year);
+  const next: AppSettingsPayload = {
+    ...existing,
+    annualCalendars: {
+      ...existing.annualCalendars,
+      [key]: calendar,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  const dataFolderId = await getSharedDataFolderId();
+  await upsertJsonFile(dataFolderId, APP_SETTINGS_FILE, next);
+  return next;
 }

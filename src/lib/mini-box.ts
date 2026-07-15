@@ -58,6 +58,8 @@ export type MiniBoxDocument = {
       label: string;
       status: SectionStatus;
       notes: string;
+      /** AI-generated campaign outline (JSON string or formatted text) */
+      outline: string;
     };
     inputs: {
       id: "inputs";
@@ -149,6 +151,7 @@ export function createEmptyMiniBox(topic = ""): MiniBoxDocument {
         label: "Ideate",
         status: "empty",
         notes: "",
+        outline: "",
       },
       inputs: {
         id: "inputs",
@@ -266,4 +269,81 @@ export function deriveSectionStatus(
   }
 
   return "empty";
+}
+
+export type GeneratedMiniBoxSections = {
+  welcome: { intro: string; contents: string; closing: string };
+  onePager: {
+    greeting: string;
+    subjectLine: string;
+    bodyPart1: string;
+    callout: string;
+    bodyPart2: string;
+  };
+  chat: { message: string };
+};
+
+export function formatOutlineText(
+  outline: import("@/lib/mini-box-prompts").MiniBoxOutline | string | null | undefined,
+) {
+  if (!outline) return "";
+  if (typeof outline === "string") return outline;
+  return JSON.stringify(outline, null, 2);
+}
+
+export function applyGeneratedMiniBoxToDocument(
+  doc: MiniBoxDocument,
+  topic: string,
+  outline: import("@/lib/mini-box-prompts").MiniBoxOutline | string | null | undefined,
+  sections: GeneratedMiniBoxSections,
+  gifs?: {
+    welcome?: GifSelection;
+    onePager?: GifSelection;
+    chat?: GifSelection;
+  },
+): MiniBoxDocument {
+  const outlineText = formatOutlineText(outline) || doc.sections.ideate.outline;
+  return {
+    ...doc,
+    topic,
+    title: topic || doc.title,
+    updatedAt: new Date().toISOString(),
+    sections: {
+      ...doc.sections,
+      title: {
+        ...doc.sections.title,
+        topicTitle: topic,
+        status: "ready",
+      },
+      ideate: {
+        ...doc.sections.ideate,
+        outline: outlineText,
+        status: outlineText.trim() ? "draft" : doc.sections.ideate.status,
+      },
+      welcome: {
+        ...doc.sections.welcome,
+        intro: sections.welcome.intro,
+        contents: sections.welcome.contents,
+        closing: sections.welcome.closing,
+        gif: gifs?.welcome ?? doc.sections.welcome.gif,
+        status: "draft",
+      },
+      onePager: {
+        ...doc.sections.onePager,
+        greeting: sections.onePager.greeting,
+        subjectLine: sections.onePager.subjectLine,
+        bodyPart1: sections.onePager.bodyPart1,
+        callout: sections.onePager.callout,
+        bodyPart2: sections.onePager.bodyPart2,
+        gif: gifs?.onePager ?? doc.sections.onePager.gif,
+        status: "draft",
+      },
+      chat: {
+        ...doc.sections.chat,
+        message: sections.chat.message,
+        gif: gifs?.chat ?? doc.sections.chat.gif,
+        status: "draft",
+      },
+    },
+  };
 }

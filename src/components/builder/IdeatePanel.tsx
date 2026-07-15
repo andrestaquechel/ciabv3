@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, Sparkles, Wand2 } from "lucide-react";
 import type { MiniBoxDocument } from "@/lib/mini-box";
-import { deriveSectionStatus } from "@/lib/mini-box";
+import {
+  applyGeneratedMiniBoxToDocument,
+  deriveSectionStatus,
+  formatOutlineText,
+} from "@/lib/mini-box";
+import type { MiniBoxOutline } from "@/lib/mini-box-prompts";
 import { StatusPill } from "@/components/builder/SectionNav";
 import { ClaudeModelSelect } from "@/components/builder/ClaudeModelSelect";
 import { loadSectionModelPreference } from "@/lib/box-store";
@@ -12,13 +17,18 @@ import { claudeModelLabel } from "@/lib/claude-models";
 export function IdeatePanel({
   document,
   onChange,
+  autoGenerate = false,
 }: {
   document: MiniBoxDocument;
   onChange: (next: MiniBoxDocument) => void;
+  autoGenerate?: boolean;
 }) {
   const [suggesting, setSuggesting] = useState(false);
+  const [generatingOutline, setGeneratingOutline] = useState(false);
+  const [generatingFull, setGeneratingFull] = useState(false);
   const [topics, setTopics] = useState<string[]>([]);
   const [note, setNote] = useState<string | null>(null);
+  const autoRan = useRef(false);
   const status = deriveSectionStatus(document, "title");
 
   function setNotes(notes: string) {
@@ -30,6 +40,20 @@ export function IdeatePanel({
         ideate: {
           ...document.sections.ideate,
           notes,
+        },
+      },
+    });
+  }
+
+  function setOutline(outline: string) {
+    onChange({
+      ...document,
+      updatedAt: new Date().toISOString(),
+      sections: {
+        ...document.sections,
+        ideate: {
+          ...document.sections.ideate,
+          outline,
         },
       },
     });
@@ -103,6 +127,96 @@ export function IdeatePanel({
     }
   }
 
+  async function generateOutline() {
+    if (!document.topic.trim()) return;
+    setGeneratingOutline(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/ai/outline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: document.topic,
+          notes: document.sections.ideate.notes,
+          articles: document.articles,
+          model: loadSectionModelPreference("title"),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Outline generation failed");
+
+      const outlineText = formatOutlineText(data.outline as MiniBoxOutline);
+      onChange({
+        ...document,
+        updatedAt: new Date().toISOString(),
+        sections: {
+          ...document.sections,
+          ideate: {
+            ...document.sections.ideate,
+            outline: outlineText,
+            status: "draft",
+          },
+        },
+      });
+      if (data.note) setNote(data.note);
+      else setNote("Outline ready — review it, then generate the full mini box.");
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Outline generation failed");
+    } finally {
+      setGeneratingOutline(false);
+    }
+  }
+
+  async function generateFullBox() {
+    if (!document.topic.trim()) return;
+    setGeneratingFull(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/ai/generate-full", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: document.topic,
+          notes: document.sections.ideate.notes,
+          outline: document.sections.ideate.outline || null,
+          articles: document.articles,
+          model: loadSectionModelPreference("title"),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Full box generation failed");
+
+      onChange(
+        applyGeneratedMiniBoxToDocument(
+          document,
+          document.topic,
+          data.outline,
+          data.sections,
+        ),
+      );
+      if (data.note) setNote(data.note);
+      else {
+        setNote(
+          "Full mini box generated — review Welcome, One-Pager, and Chat sections.",
+        );
+      }
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : "Full box generation failed");
+    } finally {
+      setGeneratingFull(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!autoGenerate || autoRan.current || !document.topic.trim()) return;
+    autoRan.current = true;
+    void generateFullBox();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when topic is set from URL
+  }, [autoGenerate, document.topic]);
+
+  const hasTopic = Boolean(document.topic.trim());
+  const busy = generatingOutline || generatingFull;
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-[var(--border)] px-5 py-4">
@@ -111,7 +225,7 @@ export function IdeatePanel({
           <StatusPill status={status} />
         </div>
         <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Set the cover title and brainstorm the angle for this box.
+          Set the cover title, generate an outline, then draft all sections at once.
         </p>
       </div>
 
@@ -139,7 +253,7 @@ export function IdeatePanel({
           <textarea
             value={document.sections.ideate?.notes || ""}
             onChange={(e) => setNotes(e.target.value)}
-            rows={6}
+            rows={4}
             placeholder="What risk is timely? Who is the audience? Any headlines or angles to explore…"
             className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 text-sm leading-relaxed outline-none focus:border-[var(--accent)]"
           />
@@ -192,12 +306,61 @@ export function IdeatePanel({
           </div>
         )}
 
-        {document.topic && (
-          <div className="rounded-2xl border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent)]">
-            Selected topic: <span className="font-medium">{document.topic}</span>
-          </div>
-        )}
+        {hasTopic && (
+          <>
+            <div className="rounded-2xl border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent)]">
+              Selected topic: <span className="font-medium">{document.topic}</span>
+            </div>
 
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+                  Campaign outline
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void generateOutline()}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] px-3 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
+                  >
+                    {generatingOutline ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={13} />
+                    )}
+                    Generate outline
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void generateFullBox()}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent-strong)] px-3 py-1.5 text-xs text-white disabled:opacity-50"
+                  >
+                    {generatingFull ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Wand2 size={13} />
+                    )}
+                    Generate full mini box
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={document.sections.ideate.outline || ""}
+                onChange={(e) => setOutline(e.target.value)}
+                rows={10}
+                placeholder="Generate an outline or paste your own brief. Used as context for welcome, one-pager, and chat."
+                className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 font-mono text-xs leading-relaxed outline-none focus:border-[var(--accent)]"
+              />
+              <p className="mt-2 text-[11px] text-[var(--text-dim)]">
+                Outline prompts are configurable in Settings. Slack{" "}
+                <code className="text-[var(--text-muted)]">/mini-box Topic</code> runs
+                outline + full generation and links back here.
+              </p>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

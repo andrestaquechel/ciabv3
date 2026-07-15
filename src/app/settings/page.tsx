@@ -14,6 +14,14 @@ import {
   saveAppSettings,
 } from "@/lib/app-settings-client";
 import { DEFAULT_CLAUDE_MODEL } from "@/lib/claude-models";
+import {
+  DEFAULT_GENERATION_PROMPTS,
+  type GenerationPromptsConfig,
+} from "@/lib/mini-box-prompts";
+import {
+  DEFAULT_TOPIC_RESEARCH_PROMPTS,
+  type TopicResearchPromptsConfig,
+} from "@/lib/mini-box-topic-prompts";
 import { signIn, signOut, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 
@@ -27,6 +35,11 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [activePicker, setActivePicker] = useState<BoxType | null>(null);
   const [claudeModel, setClaudeModel] = useState(DEFAULT_CLAUDE_MODEL);
+  const [generationPrompts, setGenerationPrompts] = useState<GenerationPromptsConfig>(
+    DEFAULT_GENERATION_PROMPTS,
+  );
+  const [topicResearchPrompts, setTopicResearchPrompts] =
+    useState<TopicResearchPromptsConfig>(DEFAULT_TOPIC_RESEARCH_PROMPTS);
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
@@ -46,6 +59,18 @@ export default function SettingsPage() {
           setCiabUrl(merged.ciab?.folderUrl ?? "");
         }
         if (remote?.claudeModel) setClaudeModel(remote.claudeModel);
+        if (remote?.generationPrompts) {
+          setGenerationPrompts({
+            ...DEFAULT_GENERATION_PROMPTS,
+            ...remote.generationPrompts,
+          });
+        }
+        if (remote?.topicResearchPrompts) {
+          setTopicResearchPrompts({
+            ...DEFAULT_TOPIC_RESEARCH_PROMPTS,
+            ...remote.topicResearchPrompts,
+          });
+        }
       } catch (err) {
         setSettingsError(
           err instanceof Error ? err.message : "Could not load shared settings.",
@@ -59,11 +84,15 @@ export default function SettingsPage() {
   async function persistRemote(
     nextSettings: typeof settings,
     nextModel: string,
+    nextPrompts: GenerationPromptsConfig = generationPrompts,
+    nextTopicPrompts: TopicResearchPromptsConfig = topicResearchPrompts,
   ) {
     if (!session?.accessToken) return;
     await saveAppSettings({
       claudeModel: nextModel,
       knowledgeFolders: nextSettings,
+      generationPrompts: nextPrompts,
+      topicResearchPrompts: nextTopicPrompts,
     });
   }
 
@@ -96,7 +125,12 @@ export default function SettingsPage() {
     setClaudeModel(model);
     setSettingsError(null);
     try {
-      await saveAppSettings({ claudeModel: model, knowledgeFolders: settings });
+      await saveAppSettings({
+        claudeModel: model,
+        knowledgeFolders: settings,
+        generationPrompts,
+        topicResearchPrompts,
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
@@ -104,6 +138,50 @@ export default function SettingsPage() {
         err instanceof Error ? err.message : "Could not save Claude model.",
       );
     }
+  }
+
+  async function saveGenerationPrompts() {
+    setSettingsError(null);
+    try {
+      await saveAppSettings({
+        claudeModel,
+        knowledgeFolders: settings,
+        generationPrompts,
+        topicResearchPrompts,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setSettingsError(
+        err instanceof Error ? err.message : "Could not save generation prompts.",
+      );
+    }
+  }
+
+  async function saveTopicResearchPrompts() {
+    setSettingsError(null);
+    try {
+      await saveAppSettings({
+        claudeModel,
+        knowledgeFolders: settings,
+        generationPrompts,
+        topicResearchPrompts,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setSettingsError(
+        err instanceof Error ? err.message : "Could not save topic research prompts.",
+      );
+    }
+  }
+
+  function resetTopicResearchPrompts() {
+    setTopicResearchPrompts(DEFAULT_TOPIC_RESEARCH_PROMPTS);
+  }
+
+  function resetGenerationPrompts() {
+    setGenerationPrompts(DEFAULT_GENERATION_PROMPTS);
   }
 
   function saveFromPicker(
@@ -299,6 +377,206 @@ ANTHROPIC_MODEL=claude-sonnet-4-6`}
                 Vercel project → Settings → Environment Variables → add{" "}
                 <code className="text-[var(--text)]">ANTHROPIC_API_KEY</code>, then redeploy.
               </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
+          <h2 className="text-base font-medium">Mini Box generation prompts</h2>
+          <p className="mt-2 text-sm text-[var(--text-muted)]">
+            Configure the prompts used after a topic is selected — for outline
+            generation, full mini box generation, and Slack{" "}
+            <code className="text-[var(--text)]">/mini-box</code> commands. Saved
+            to shared Google Drive. Template variables:{" "}
+            <code className="text-[var(--text)]">{"{{topic}}"}</code>,{" "}
+            <code className="text-[var(--text)]">{"{{notes}}"}</code>,{" "}
+            <code className="text-[var(--text)]">{"{{outline}}"}</code>,{" "}
+            <code className="text-[var(--text)]">{"{{articles}}"}</code>.
+          </p>
+
+          {session?.accessToken ? (
+            <div className="mt-4 space-y-4">
+              {(
+                [
+                  ["outlineSystem", "Outline system prompt"],
+                  ["outlineUser", "Outline user template"],
+                  ["generateSystem", "Full box system prompt"],
+                  ["generateFullUser", "Full box user template"],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="block">
+                  <span className="text-xs font-medium text-[var(--text-dim)]">
+                    {label}
+                  </span>
+                  <textarea
+                    value={generationPrompts[key] || ""}
+                    disabled={loadingSettings}
+                    onChange={(e) =>
+                      setGenerationPrompts((prev) => ({
+                        ...prev,
+                        [key]: e.target.value,
+                      }))
+                    }
+                    rows={key.includes("User") ? 12 : 3}
+                    className="mt-2 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 font-mono text-xs leading-relaxed disabled:opacity-50"
+                  />
+                </label>
+              ))}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={loadingSettings}
+                  onClick={() => void saveGenerationPrompts()}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs disabled:opacity-50"
+                >
+                  Save prompts
+                </button>
+                <button
+                  type="button"
+                  disabled={loadingSettings}
+                  onClick={resetGenerationPrompts}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)]"
+                >
+                  Reset to defaults
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-[var(--text-muted)]">
+              Connect Google above to edit shared generation prompts.
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
+          <h2 className="text-base font-medium">Topic research prompts (Slack step 1)</h2>
+          <p className="mt-2 text-sm text-[var(--text-muted)]">
+            Used when the Slack bot researches 6 Mini Box candidates. Variable:{" "}
+            <code className="text-[var(--text)]">{"{{monthlyCiabTopic}}"}</code>{" "}
+            comes from the parsed annual calendar on Drive.
+          </p>
+          {session?.accessToken ? (
+            <div className="mt-4 space-y-4">
+              {(
+                [
+                  ["topicResearchSystem", "Topic research system prompt"],
+                  ["topicResearchUser", "Topic research user template"],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="block">
+                  <span className="text-xs font-medium text-[var(--text-dim)]">
+                    {label}
+                  </span>
+                  <textarea
+                    value={topicResearchPrompts[key] || ""}
+                    disabled={loadingSettings}
+                    onChange={(e) =>
+                      setTopicResearchPrompts((prev) => ({
+                        ...prev,
+                        [key]: e.target.value,
+                      }))
+                    }
+                    rows={key === "topicResearchUser" ? 16 : 3}
+                    className="mt-2 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 font-mono text-xs leading-relaxed disabled:opacity-50"
+                  />
+                </label>
+              ))}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={loadingSettings}
+                  onClick={() => void saveTopicResearchPrompts()}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs disabled:opacity-50"
+                >
+                  Save topic prompts
+                </button>
+                <button
+                  type="button"
+                  disabled={loadingSettings}
+                  onClick={resetTopicResearchPrompts}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text-muted)]"
+                >
+                  Reset to defaults
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-[var(--text-muted)]">
+              Connect Google to edit shared topic research prompts.
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
+          <h2 className="text-base font-medium">Slack bot setup</h2>
+          <p className="mt-2 text-sm text-[var(--text-muted)]">
+            Add the app to any channel, then @mention it or DM it. Works in all
+            channels where the bot is invited.
+          </p>
+          <div className="mt-4 space-y-3 text-sm text-[var(--text-muted)]">
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+                Bot token scopes (OAuth &amp; Permissions)
+              </div>
+              <ul className="mt-2 list-inside list-disc text-xs">
+                <li><code>app_mentions:read</code> — @mentions in channels</li>
+                <li><code>chat:write</code> — post messages and buttons</li>
+                <li><code>files:read</code> — calendar photos uploaded in Slack</li>
+                <li><code>im:history</code> — direct messages to the bot</li>
+                <li><code>channels:history</code> — read thread context (public channels)</li>
+                <li><code>groups:history</code> — private channels the bot is in</li>
+                <li><code>commands</code> — optional slash command</li>
+                <li><code>users:read</code> — future CSM @mentions</li>
+              </ul>
+            </div>
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+                Event Subscriptions → Request URL
+              </div>
+              <pre className="mt-2 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3 text-xs text-[var(--text)]">
+{`https://ciabv2-gilt.vercel.app/api/webhooks/slack/events
+
+Subscribe to bot events:
+• app_mention
+• message.im`}
+              </pre>
+            </div>
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+                Interactivity → Request URL
+              </div>
+              <pre className="mt-2 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3 text-xs text-[var(--text)]">
+{`https://ciabv2-gilt.vercel.app/api/webhooks/slack/interactions`}
+              </pre>
+            </div>
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+                Slash command (optional)
+              </div>
+              <pre className="mt-2 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3 text-xs text-[var(--text)]">
+{`/mini-box → https://ciabv2-gilt.vercel.app/api/webhooks/slack`}
+              </pre>
+            </div>
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+                Vercel env vars
+              </div>
+              <pre className="mt-2 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3 text-xs text-[var(--text)]">
+{`SLACK_BOT_TOKEN=xoxb-...
+SLACK_SIGNING_SECRET=...
+BOX_STUDIO_DATA_FOLDER_ID=...   # shared Drive folder
+BOX_STUDIO_GOOGLE_REFRESH_TOKEN=...  # server Drive read/write for Slack`}
+              </pre>
+            </div>
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+                Commands in Slack
+              </div>
+              <ul className="mt-2 list-inside list-disc text-xs">
+                <li><code>@Box Studio topics</code> — 6 topic candidates with Select buttons</li>
+                <li>Upload calendar photo + @mention — OCR year/month topics</li>
+                <li><code>/mini-box topics</code> — same as above (slash command)</li>
+              </ul>
             </div>
           </div>
         </div>

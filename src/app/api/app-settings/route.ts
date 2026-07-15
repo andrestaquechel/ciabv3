@@ -53,6 +53,18 @@ export async function PUT(request: Request) {
         ...existing.knowledgeFolders,
         ...body.knowledgeFolders,
       },
+      generationPrompts: {
+        ...existing.generationPrompts,
+        ...body.generationPrompts,
+      },
+      topicResearchPrompts: {
+        ...existing.topicResearchPrompts,
+        ...body.topicResearchPrompts,
+      },
+      annualCalendars: {
+        ...existing.annualCalendars,
+        ...body.annualCalendars,
+      },
     };
 
     const saved = await saveAppSettingsToDrive(

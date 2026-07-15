@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import type { MiniBoxDocument, MiniBoxSectionId } from "@/lib/mini-box";
 import { AppShell } from "@/components/layout/AppShell";
@@ -21,6 +22,7 @@ import {
   saveSyncPreviewPreference,
   type BoxKind,
 } from "@/lib/box-store";
+import { applyGeneratedMiniBoxToDocument } from "@/lib/mini-box";
 
 async function downloadPptx(doc: MiniBoxDocument) {
   const res = await fetch("/api/pptx/export", {
@@ -54,6 +56,24 @@ async function downloadPptx(doc: MiniBoxDocument) {
 }
 
 export function MiniBoxBuilder({ initialId }: { initialId: string }) {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center text-[var(--text-muted)]">
+          <Loader2 className="animate-spin" size={20} />
+        </div>
+      }
+    >
+      <MiniBoxBuilderInner initialId={initialId} />
+    </Suspense>
+  );
+}
+
+function MiniBoxBuilderInner({ initialId }: { initialId: string }) {
+  const searchParams = useSearchParams();
+  const draftId = searchParams.get("draft");
+  const topicParam = searchParams.get("topic");
+  const autoGenerate = searchParams.get("autoGenerate") === "1";
   const [document, setDocument] = useState<MiniBoxDocument | null>(null);
   const [activeSection, setActiveSection] =
     useState<MiniBoxSectionId>("title");
@@ -69,16 +89,47 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
   }, []);
 
   useEffect(() => {
-    if (initialId === "new") {
-      const doc = createBox("mini-box");
+    if (initialId !== "new") {
+      const existing = loadBox(initialId);
+      setDocument(existing || createBox("mini-box"));
+      return;
+    }
+
+    async function initNewBox() {
+      if (draftId) {
+        try {
+          const res = await fetch(`/api/boxes/draft/${encodeURIComponent(draftId)}`);
+          const data = await res.json();
+          if (res.ok && data.draft) {
+            const doc = createBox("mini-box", data.draft.topic);
+            const merged = applyGeneratedMiniBoxToDocument(
+              doc,
+              data.draft.topic,
+              data.draft.outline,
+              data.draft.sections,
+              data.draft.gifs,
+            );
+            setDocument(merged);
+            saveBox(merged);
+            window.history.replaceState(null, "", `/builder/${merged.id}`);
+            return;
+          }
+        } catch {
+          // fall through to empty box
+        }
+      }
+
+      const doc = createBox("mini-box", topicParam || "");
+      if (topicParam) {
+        doc.sections.title.topicTitle = topicParam;
+      }
       setDocument(doc);
       saveBox(doc);
       window.history.replaceState(null, "", `/builder/${doc.id}`);
-      return;
     }
-    const existing = loadBox(initialId);
-    setDocument(existing || createBox("mini-box"));
-  }, [initialId]);
+
+    void initNewBox();
+  }, [initialId, draftId, topicParam]);
 
   const updateDoc = useCallback((next: MiniBoxDocument) => {
     setDocument(next);
@@ -185,7 +236,11 @@ export function MiniBoxBuilder({ initialId }: { initialId: string }) {
                 </div>
               )}
               {activeSection === "title" ? (
-                <IdeatePanel document={document} onChange={updateDoc} />
+                <IdeatePanel
+                  document={document}
+                  onChange={updateDoc}
+                  autoGenerate={autoGenerate}
+                />
               ) : activeSection === "review" ? (
                 <ReviewPanel
                   document={document}

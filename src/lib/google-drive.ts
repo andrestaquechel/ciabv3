@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { auth } from "@/lib/auth";
+import { getServerDriveClient } from "@/lib/google-drive-server";
 
 export async function getGoogleAuthClient() {
   const session = await auth();
@@ -21,8 +22,14 @@ export async function getGoogleAuthClient() {
 }
 
 export async function getDriveClient() {
-  const authClient = await getGoogleAuthClient();
-  return google.drive({ version: "v3", auth: authClient });
+  try {
+    const authClient = await getGoogleAuthClient();
+    return google.drive({ version: "v3", auth: authClient });
+  } catch {
+    const server = await getServerDriveClient();
+    if (server) return server;
+    throw new Error("Connect Google to access Drive.");
+  }
 }
 
 export function parseDriveFolderId(input: string): string | null {

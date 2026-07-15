@@ -118,3 +118,105 @@ export async function anthropicJson<T>(
   });
   return parseJsonFromModelText<T>(text);
 }
+
+type ImageMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+
+type AnthropicVisionParams = {
+  system: string;
+  userText: string;
+  imageBase64: string;
+  mediaType: ImageMediaType;
+  temperature?: number;
+  maxTokens?: number;
+  model?: string;
+};
+
+function parseDataUrl(dataUrl: string): { mediaType: ImageMediaType; base64: string } | null {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  const rawType = match[1].toLowerCase();
+  const allowed: ImageMediaType[] = [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+  ];
+  const mediaType = allowed.includes(rawType as ImageMediaType)
+    ? (rawType as ImageMediaType)
+    : "image/png";
+  return { mediaType, base64: match[2] };
+}
+
+export async function anthropicVisionJson<T>({
+  system,
+  userText,
+  imageBase64,
+  mediaType,
+  temperature = 0.2,
+  maxTokens = 4096,
+  model,
+}: AnthropicVisionParams): Promise<T> {
+  const apiKey = getAnthropicApiKey();
+  if (!apiKey) throw new Error(anthropicMissingKeyMessage());
+
+  const resolvedModel = model
+    ? resolveClaudeModel(model, process.env.ANTHROPIC_MODEL)
+    : await resolveAnthropicModel();
+
+  const res = await fetch(ANTHROPIC_API_URL, {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: resolvedModel,
+      max_tokens: maxTokens,
+      temperature,
+      system: `${system}\n\nRespond with valid JSON only. No markdown fences or commentary.`,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: mediaType, data: imageBase64 },
+            },
+            { type: "text", text: userText },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Anthropic vision error: ${res.status} ${errText}`);
+  }
+
+  const data = (await res.json()) as {
+    content?: Array<{ type: string; text?: string }>;
+  };
+  const text = data.content
+    ?.filter((block) => block.type === "text" && block.text)
+    .map((block) => block.text)
+    .join("\n")
+    .trim();
+  if (!text) throw new Error("Anthropic vision returned an empty response.");
+  return parseJsonFromModelText<T>(text);
+}
+
+export async function anthropicVisionJsonFromDataUrl<T>(
+  params: Omit<AnthropicVisionParams, "imageBase64" | "mediaType"> & {
+    dataUrl: string;
+  },
+): Promise<T> {
+  const parsed = parseDataUrl(params.dataUrl);
+  if (!parsed) throw new Error("Invalid image data URL.");
+  return anthropicVisionJson<T>({
+    ...params,
+    imageBase64: parsed.base64,
+    mediaType: parsed.mediaType,
+  });
+}

@@ -2,9 +2,15 @@
 
 import type { KnowledgeSettings } from "@/lib/knowledge-store";
 import { CLAUDE_MODEL_OPTIONS } from "@/lib/claude-models";
+import type { GenerationPromptsConfig } from "@/lib/mini-box-prompts";
+
+import type { TopicResearchPromptsConfig } from "@/lib/mini-box-topic-prompts";
 
 export type AppSettingsResponse = {
   claudeModel?: string;
+  generationPrompts?: GenerationPromptsConfig;
+  topicResearchPrompts?: TopicResearchPromptsConfig;
+  annualCalendars?: import("@/lib/annual-calendar-types").AnnualCalendarsConfig;
   knowledgeFolders?: KnowledgeSettings;
   updatedAt?: string;
   updatedBy?: string;
@@ -18,7 +24,10 @@ export async function fetchAppSettings(): Promise<AppSettingsResponse | null> {
 }
 
 export async function saveAppSettings(
-  payload: Pick<AppSettingsResponse, "claudeModel" | "knowledgeFolders">,
+  payload: Pick<
+    AppSettingsResponse,
+    "claudeModel" | "knowledgeFolders" | "generationPrompts" | "topicResearchPrompts"
+  >,
 ): Promise<AppSettingsResponse | null> {
   const res = await fetch("/api/app-settings", {
     method: "PUT",

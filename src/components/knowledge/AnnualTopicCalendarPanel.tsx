@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import {
   getAnnualCalendarYear,
   loadAnnualCalendars,
   saveAnnualCalendarYear,
   type AnnualCalendarsStore,
 } from "@/lib/annual-calendar-store";
+import type { ParsedAnnualCalendar } from "@/lib/annual-calendar-types";
 import {
   Calendar,
   ChevronLeft,
@@ -43,9 +45,12 @@ function yearRange(current: number, stored: number[]) {
 }
 
 export function AnnualTopicCalendarPanel() {
+  const { data: session } = useSession();
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [store, setStore] = useState<AnnualCalendarsStore>({ calendars: {} });
+  const [parsedCalendar, setParsedCalendar] = useState<ParsedAnnualCalendar | null>(null);
+  const [parsing, setParsing] = useState(false);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,8 +105,34 @@ export function AnnualTopicCalendarPanel() {
     try {
       const dataUrl = await readImageFile(file);
       saveYear({ imageDataUrl: dataUrl, sourceFileName: file.name });
+      if (session?.accessToken && file.type.startsWith("image/")) {
+        void parseAndSyncCalendar(dataUrl, file.name);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not attach file.");
+    }
+  }
+
+  async function parseAndSyncCalendar(dataUrl: string, sourceFileName?: string) {
+    setParsing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/annual-calendar/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dataUrl,
+          year: selectedYear,
+          sourceFileName,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Calendar OCR failed.");
+      setParsedCalendar(data.calendar as ParsedAnnualCalendar);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Calendar OCR failed.");
+    } finally {
+      setParsing(false);
     }
   }
 
@@ -199,8 +230,9 @@ export function AnnualTopicCalendarPanel() {
 
           <div className="space-y-3">
             <p className="text-xs text-[var(--text-muted)]">
-              Upload the yearly topic calendar (image or PDF). Saved in the app
-              on this browser — no Google Drive file is created.
+              Upload the yearly topic calendar (image or PDF). Image calendars are
+              OCR&apos;d with Claude and saved to shared Drive for Slack topic
+              research. Local preview stays in this browser.
             </p>
             <input
               ref={fileInputRef}
@@ -237,11 +269,45 @@ export function AnnualTopicCalendarPanel() {
             >
               {saving ? "Saving…" : "Save notes"}
             </button>
+            {entry?.imageDataUrl && session?.accessToken && (
+              <button
+                type="button"
+                disabled={parsing}
+                onClick={() =>
+                  void parseAndSyncCalendar(entry.imageDataUrl!, entry.sourceFileName)
+                }
+                className="w-full rounded-xl border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-50"
+              >
+                {parsing ? "Parsing calendar…" : "Parse & sync to Drive"}
+              </button>
+            )}
+            {parsedCalendar && (
+              <div className="rounded-xl border border-[var(--accent)]/30 bg-[var(--accent-soft)] p-3 text-xs text-[var(--accent)]">
+                <div className="font-medium">{parsedCalendar.year} topics parsed</div>
+                <ul className="mt-2 max-h-40 space-y-1 overflow-auto">
+                  {parsedCalendar.months
+                    .slice()
+                    .sort((a, b) => a.monthNumber - b.monthNumber)
+                    .map((m) => (
+                      <li key={m.month}>
+                        <span className="font-medium">{m.month}:</span>{" "}
+                        {m.ciabTopic || "—"}
+                        {m.miniBoxTopics?.length
+                          ? ` · MB: ${m.miniBoxTopics.join(", ")}`
+                          : ""}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
             {entry?.imageDataUrl && (
               <button
                 type="button"
                 disabled={saving}
-                onClick={() => saveYear({ clearImage: true })}
+                onClick={() => {
+                  setParsedCalendar(null);
+                  saveYear({ clearImage: true });
+                }}
                 className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--danger)] disabled:opacity-50"
               >
                 <Trash2 size={14} />

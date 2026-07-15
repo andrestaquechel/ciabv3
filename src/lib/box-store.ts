@@ -27,7 +27,11 @@ function migrateDoc(raw: MiniBoxDocument): MiniBoxDocument {
     sections: {
       ...base.sections,
       ...raw.sections,
-      ideate: raw.sections?.ideate || base.sections.ideate,
+      ideate: {
+        ...base.sections.ideate,
+        ...(raw.sections?.ideate || {}),
+        outline: raw.sections?.ideate?.outline ?? "",
+      },
       inputs: raw.sections?.inputs || base.sections.inputs,
       review: raw.sections?.review || base.sections.review,
       title: {
