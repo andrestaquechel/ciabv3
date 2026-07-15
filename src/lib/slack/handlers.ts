@@ -24,12 +24,18 @@ import {
   outlineReviewBlocks,
   topicCandidatesBlocks,
 } from "@/lib/slack/blocks";
+import { topicCandidatesTableBlocks } from "@/lib/slack/newbox-blocks";
+import {
+  handleNewboxMonthSelect,
+  handleNewboxTypeSelect,
+} from "@/lib/slack/newbox-handlers";
 import { startCsmReview } from "@/lib/slack/csm-review";
 import { applyCsmFeedbackAndFinalize } from "@/lib/slack/morgan-review";
 import {
   findSlackWorkflowIdByThread,
   loadAppSettingsFromDrive,
 } from "@/lib/box-studio-drive-data";
+import { monthCiabTopic, MONTH_LABELS } from "@/lib/annual-calendar-types";
 import { resolveSlackReview } from "@/lib/slack/review-settings";
 
 type SlackFile = { id: string; mimetype?: string; filetype?: string };
@@ -229,6 +235,81 @@ export async function runTopicResearch({
       workflowId,
       result.candidates,
       result.monthlyCiabTopic,
+    ),
+  });
+
+  if (result.note) {
+    await slackPostMessage({ channel, threadTs, text: result.note });
+  }
+}
+
+export async function runTopicResearchForMonth({
+  channel,
+  threadTs,
+  userId,
+  workflowId: existingWorkflowId,
+  monthNumber,
+  monthLabel,
+  year = new Date().getFullYear(),
+}: {
+  channel: string;
+  threadTs?: string;
+  userId?: string;
+  workflowId?: string;
+  monthNumber: number;
+  monthLabel: string;
+  year?: number;
+}) {
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: `Researching 6 Mini Box topics for *${monthLabel}* (this may take a minute)…`,
+  });
+
+  let monthlyCiabTopic: string | undefined;
+  try {
+    const settings = await loadAppSettingsFromDrive();
+    monthlyCiabTopic = monthCiabTopic(settings?.annualCalendars, monthNumber, year);
+  } catch {
+    monthlyCiabTopic = undefined;
+  }
+
+  const result = await generateTopicCandidates({ monthlyCiabTopic });
+  const workflowId = existingWorkflowId || randomUUID();
+  const now = new Date().toISOString();
+
+  const workflow: SlackWorkflowRecord = {
+    id: workflowId,
+    boxType: "mini-box",
+    status: "topic_selection",
+    slackChannel: channel,
+    slackThreadTs: threadTs,
+    topicCandidates: result.candidates,
+    monthlyCiabTopic: result.monthlyCiabTopic || monthlyCiabTopic,
+    targetMonth: monthNumber,
+    targetMonthLabel: monthLabel,
+    targetYear: year,
+    createdAt: now,
+    updatedAt: now,
+    createdBy: userId,
+  };
+
+  try {
+    await saveSlackWorkflowToDrive(workflow);
+    if (threadTs) await registerSlackWorkflowThread(channel, threadTs, workflowId);
+  } catch {
+    // continue if Drive unavailable
+  }
+
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: `Mini Box topics for ${monthLabel} ready.`,
+    blocks: topicCandidatesTableBlocks(
+      workflowId,
+      result.candidates,
+      workflow.monthlyCiabTopic,
+      monthLabel,
     ),
   });
 
@@ -497,7 +578,11 @@ export async function handleThreadReply({
 }
 
 export async function handleBlockActions(payload: {
-  actions?: Array<{ action_id: string; value?: string }>;
+  actions?: Array<{
+    action_id: string;
+    value?: string;
+    selected_option?: { value: string };
+  }>;
   channel?: { id: string };
   message?: { ts: string; thread_ts?: string };
   user?: { id: string };
@@ -510,6 +595,35 @@ export async function handleBlockActions(payload: {
 
   const threadTs = payload.message?.thread_ts || payload.message?.ts;
   const userId = payload.user?.id;
+
+  if (action.action_id.startsWith("newbox_type:")) {
+    const [, workflowId, boxType] = action.action_id.split(":");
+    if (!workflowId || (boxType !== "mini-box" && boxType !== "ciab")) return;
+    await handleNewboxTypeSelect({
+      workflowId,
+      boxType,
+      channel,
+      threadTs,
+    });
+    return;
+  }
+
+  if (action.action_id.startsWith("newbox_month:")) {
+    const workflowId = action.action_id.split(":")[1];
+    const monthValue = action.selected_option?.value || action.value;
+    const monthNumber = Number(monthValue);
+    if (!workflowId || !monthNumber || monthNumber < 1 || monthNumber > 12) return;
+    await handleNewboxMonthSelect({
+      workflowId,
+      monthNumber,
+      monthLabel: MONTH_LABELS[monthNumber - 1],
+      year: new Date().getFullYear(),
+      channel,
+      threadTs,
+      userId,
+    });
+    return;
+  }
 
   if (action.action_id.startsWith("select_topic:")) {
     const [, workflowId, candidateId] = action.action_id.split(":");

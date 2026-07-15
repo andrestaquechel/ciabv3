@@ -14,6 +14,7 @@ import {
   resolveGenerationPrompts,
 } from "@/lib/mini-box-prompts";
 import { loadAppSettingsFromDrive } from "@/lib/box-studio-drive-data";
+import { retrieveArchiveExamples } from "@/lib/knowledge-retrieval";
 
 export type { GeneratedMiniBoxSections } from "@/lib/mini-box";
 
@@ -91,10 +92,13 @@ export async function generateOutline({
     };
   }
 
+  const archiveExamples = await retrieveArchiveExamples({ topic, boxType: "mini-box" });
+
   const user = applyPromptTemplate(prompts.outlineUser, {
     topic,
     notes: notes.trim() || "(none)",
     articles: articleContext(articles),
+    archiveExamples,
   });
 
   const outline = await anthropicJson<MiniBoxOutline>({
@@ -136,11 +140,14 @@ export async function generateFullMiniBox({
     };
   }
 
+  const archiveExamples = await retrieveArchiveExamples({ topic, boxType: "mini-box" });
+
   const user = applyPromptTemplate(prompts.generateFullUser, {
     topic,
     notes: notes.trim() || "(none)",
     outline: outlineToContextText(outline),
     articles: articleContext(articles),
+    archiveExamples,
   });
 
   const sections = await anthropicJson<GeneratedMiniBoxSections>({

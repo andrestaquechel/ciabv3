@@ -54,6 +54,15 @@ export default function SettingsPage() {
     Array<{ id: string; realName: string; displayName: string; title?: string }>
   >([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
+  const [serverDriveStatus, setServerDriveStatus] = useState<{
+    envConfigured?: { refreshToken: boolean; dataFolderId: boolean };
+    sessionDrive?: {
+      hasRefreshToken: boolean;
+      refreshToken?: string;
+      dataFolderId?: string;
+      miniBoxArchiveFolderId?: string;
+    };
+  } | null>(null);
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
@@ -88,6 +97,9 @@ export default function SettingsPage() {
         const resolvedSlack = resolveSlackReview(remote?.slackReview);
         setCsmUserIds(resolvedSlack.csmUserIds.join(", "));
         setMorganUserId(resolvedSlack.morganUserId);
+
+        const driveStatus = await fetch("/api/setup/server-drive").then((r) => r.json());
+        setServerDriveStatus(driveStatus);
       } catch (err) {
         setSettingsError(
           err instanceof Error ? err.message : "Could not load shared settings.",
@@ -744,6 +756,78 @@ Examples:
                     ))}
                   </ul>
                 )}
+              </div>
+            )}
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
+                Slash commands
+              </div>
+              <pre className="mt-2 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3 text-xs text-[var(--text)]">
+{`/newbox  →  https://ciabv2-gilt.vercel.app/api/webhooks/slack/newbox
+  Streamlined wizard: Mini Box or CIAB → month → topic table → full workflow
+
+/mini-box  →  https://ciabv2-gilt.vercel.app/api/webhooks/slack
+  topics | help | [topic name]`}
+              </pre>
+            </div>
+            {session?.accessToken && serverDriveStatus && (
+              <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-4 text-xs">
+                <div className="font-medium text-[var(--text-dim)]">
+                  Server Drive (Slack workflow persistence)
+                </div>
+                <ul className="list-inside list-disc text-[var(--text-muted)]">
+                  <li>
+                    Refresh token on Vercel:{" "}
+                    {serverDriveStatus.envConfigured?.refreshToken ? (
+                      <span className="text-green-600">configured</span>
+                    ) : (
+                      <span className="text-amber-600">missing</span>
+                    )}
+                  </li>
+                  <li>
+                    Data folder on Vercel:{" "}
+                    {serverDriveStatus.envConfigured?.dataFolderId ? (
+                      <span className="text-green-600">configured</span>
+                    ) : (
+                      <span className="text-amber-600">optional / missing</span>
+                    )}
+                  </li>
+                  <li>
+                    Your session refresh token:{" "}
+                    {serverDriveStatus.sessionDrive?.hasRefreshToken
+                      ? "available — copy below into Vercel"
+                      : "sign out and sign in again with Google (consent) to capture"}
+                  </li>
+                </ul>
+                {serverDriveStatus.sessionDrive?.refreshToken && (
+                  <textarea
+                    readOnly
+                    rows={2}
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 font-mono text-[10px]"
+                    value={serverDriveStatus.sessionDrive.refreshToken}
+                  />
+                )}
+                {serverDriveStatus.sessionDrive?.dataFolderId && (
+                  <div className="text-[var(--text-muted)]">
+                    Box Studio Data folder:{" "}
+                    <code className="text-[var(--accent)]">
+                      {serverDriveStatus.sessionDrive.dataFolderId}
+                    </code>
+                  </div>
+                )}
+                {serverDriveStatus.sessionDrive?.miniBoxArchiveFolderId && (
+                  <div className="text-[var(--text-muted)]">
+                    Mini Box archive folder:{" "}
+                    <code className="text-[var(--accent)]">
+                      {serverDriveStatus.sessionDrive.miniBoxArchiveFolderId}
+                    </code>
+                  </div>
+                )}
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Add <code>BOX_STUDIO_GOOGLE_REFRESH_TOKEN</code> and optionally{" "}
+                  <code>BOX_STUDIO_DATA_FOLDER_ID</code> in Vercel → redeploy. Required
+                  for Slack button clicks to persist workflow state.
+                </p>
               </div>
             )}
             <div>

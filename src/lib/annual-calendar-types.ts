@@ -29,7 +29,65 @@ const MONTH_NAMES = [
   "october",
   "november",
   "december",
-];
+] as const;
+
+export const MONTH_LABELS = MONTH_NAMES.map(
+  (m) => m.charAt(0).toUpperCase() + m.slice(1),
+);
+
+export function parseMonthInput(input: string, year = new Date().getFullYear()): {
+  monthNumber: number;
+  monthLabel: string;
+  year: number;
+} | null {
+  const t = input.trim().toLowerCase();
+  if (!t) return null;
+
+  const asNum = Number(t);
+  if (asNum >= 1 && asNum <= 12) {
+    return {
+      monthNumber: asNum,
+      monthLabel: MONTH_LABELS[asNum - 1],
+      year,
+    };
+  }
+
+  const idx = MONTH_NAMES.findIndex((m) => m.startsWith(t) || t.startsWith(m.slice(0, 3)));
+  if (idx >= 0) {
+    return {
+      monthNumber: idx + 1,
+      monthLabel: MONTH_LABELS[idx],
+      year,
+    };
+  }
+
+  return null;
+}
+
+export function monthEntry(
+  calendars: AnnualCalendarsConfig | undefined,
+  monthNumber: number,
+  year = new Date().getFullYear(),
+): MonthTopicEntry | undefined {
+  const entry = calendars?.[String(year)];
+  return entry?.months?.find((m) => m.monthNumber === monthNumber);
+}
+
+export function monthCiabTopic(
+  calendars: AnnualCalendarsConfig | undefined,
+  monthNumber: number,
+  year = new Date().getFullYear(),
+): string | undefined {
+  return monthEntry(calendars, monthNumber, year)?.ciabTopic?.trim() || undefined;
+}
+
+export function monthMiniBoxTopics(
+  calendars: AnnualCalendarsConfig | undefined,
+  monthNumber: number,
+  year = new Date().getFullYear(),
+): string[] {
+  return monthEntry(calendars, monthNumber, year)?.miniBoxTopics?.filter(Boolean) || [];
+}
 
 export function currentMonthCiabTopic(
   calendars: AnnualCalendarsConfig | undefined,

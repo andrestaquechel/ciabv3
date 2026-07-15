@@ -254,6 +254,7 @@ export type SlackWorkflowRecord = {
   id: string;
   boxType: "mini-box" | "ciab";
   status:
+    | "newbox_setup"
     | "topic_selection"
     | "outline"
     | "full_draft"
@@ -267,6 +268,9 @@ export type SlackWorkflowRecord = {
   outline?: import("@/lib/mini-box-prompts").MiniBoxOutline;
   draftId?: string;
   monthlyCiabTopic?: string;
+  targetMonth?: number;
+  targetYear?: number;
+  targetMonthLabel?: string;
   createdAt: string;
   updatedAt: string;
   createdBy?: string;

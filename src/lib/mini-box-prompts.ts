@@ -3,16 +3,16 @@ import type { SourceArticle } from "@/lib/mini-box";
 export type GenerationPromptsConfig = {
   /** System prompt for outline generation */
   outlineSystem?: string;
-  /** User template — vars: {{topic}}, {{notes}}, {{articles}} */
+  /** User template — vars: {{topic}}, {{notes}}, {{articles}}, {{archiveExamples}} */
   outlineUser?: string;
   /** System prompt for section / full-box generation */
   generateSystem?: string;
-  /** User template for full mini box — vars: {{topic}}, {{notes}}, {{outline}}, {{articles}} */
+  /** User template for full mini box — vars: {{topic}}, {{notes}}, {{outline}}, {{articles}}, {{archiveExamples}} */
   generateFullUser?: string;
 };
 
 export const DEFAULT_GENERATION_PROMPTS: Required<GenerationPromptsConfig> = {
-  outlineSystem: `You plan Living Security Mini Box campaigns for employees. Return practical, security-awareness focused briefs. JSON only.`,
+  outlineSystem: `You plan Living Security Mini Box campaigns for employees. Match the voice, structure, and tone of past Mini Boxes in the archive examples when provided. Return practical, security-awareness focused briefs. JSON only.`,
   outlineUser: `Topic: {{topic}}
 
 Ideation notes:
@@ -20,6 +20,9 @@ Ideation notes:
 
 Source articles:
 {{articles}}
+
+Past Mini Box examples from our archive (match language, tone, and structure):
+{{archiveExamples}}
 
 Return JSON:
 {
@@ -32,7 +35,7 @@ Return JSON:
   "chatScenario": "interactive chat scenario idea",
   "habitToReinforce": "one clear behavior employees should adopt"
 }`,
-  generateSystem: `You write Living Security Mini Box content: conversational, security-awareness focused, emoji-friendly, practical habits. Use the outline and source articles when provided. Keep tone warm and clear. Return JSON only. Leave {{ SIGNATURE }} unchanged in email closings.`,
+  generateSystem: `You write Living Security Mini Box content: conversational, security-awareness focused, emoji-friendly, practical habits. Match the language, tone, and formatting patterns from past Mini Boxes in the archive examples. Use the outline and source articles when provided. Keep tone warm and clear. Return JSON only. Leave {{ SIGNATURE }} unchanged in email closings.`,
   generateFullUser: `Topic: {{topic}}
 
 Ideation notes:
@@ -43,6 +46,9 @@ Outline:
 
 Source articles:
 {{articles}}
+
+Past Mini Box examples from our archive (match voice and style closely):
+{{archiveExamples}}
 
 Generate a complete Mini Box draft. Return JSON:
 {
