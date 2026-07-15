@@ -15,6 +15,11 @@ import {
   saveKnowledgeIndex,
   type KnowledgeIndex,
 } from "@/lib/knowledge-cache";
+import { fetchAppSettings, saveAppSettings } from "@/lib/app-settings-client";
+import {
+  loadKnowledgeSettings,
+  saveKnowledgeSettings,
+} from "@/lib/knowledge-store";
 import {
   ChevronRight,
   Database,
@@ -54,6 +59,12 @@ export default function KnowledgePage() {
   const [browseFolderId, setBrowseFolderId] = useState<string | null>(null);
   const [archiveIndex, setArchiveIndex] = useState<KnowledgeIndex | null>(null);
   const [indexing, setIndexing] = useState(false);
+  const [indexProgress, setIndexProgress] = useState<{
+    current: number;
+    total: number;
+    fileName: string;
+    phase: "scanning" | "indexing";
+  } | null>(null);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
@@ -86,12 +97,25 @@ export default function KnowledgePage() {
   }, []);
 
   useEffect(() => {
-    if (!folderConfig?.folderId || !session?.accessToken) {
-      setFolders([]);
-      setFiles([]);
-      setBrowseFolderId(null);
-      setBreadcrumbs([]);
-      setArchiveIndex(null);
+    if (status !== "authenticated") return;
+    void (async () => {
+      const remote = await fetchAppSettings();
+      if (remote?.knowledgeFolders) {
+        const merged = {
+          ...loadKnowledgeSettings(),
+          ...remote.knowledgeFolders,
+        };
+        saveKnowledgeSettings(merged);
+        setRefreshKey((k) => k + 1);
+      }
+    })();
+  }, [status]);
+
+  useEffect(() => {
+    if (!folderConfig?.folderId || status !== "authenticated") {
+      if (!folderConfig?.folderId) {
+        setArchiveIndex(null);
+      }
       return;
     }
     setBrowseFolderId(folderConfig.folderId);
@@ -102,8 +126,27 @@ export default function KnowledgePage() {
       },
     ]);
     void loadBrowse(folderConfig.folderId);
-    setArchiveIndex(loadKnowledgeIndex(boxType, folderConfig.folderId));
-  }, [boxType, session?.accessToken, folderConfig?.folderId, folderConfig?.folderName, loadBrowse]);
+
+    void (async () => {
+      const local = loadKnowledgeIndex(boxType, folderConfig.folderId);
+      if (local) setArchiveIndex(local);
+
+      try {
+        const res = await fetch(
+          `/api/knowledge/index/stored?folderId=${encodeURIComponent(folderConfig.folderId)}&boxType=${encodeURIComponent(boxType)}`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { index?: KnowledgeIndex | null };
+        if (data.index?.documents?.length) {
+          setArchiveIndex(data.index);
+          saveKnowledgeIndex(data.index);
+        }
+      } catch {
+        // keep local cache if Drive fetch fails
+      }
+    })();
+  }, [boxType, status, folderConfig?.folderId, folderConfig?.folderName, loadBrowse]);
 
   function openSubfolder(folder: DriveEntry) {
     setBrowseFolderId(folder.id);
@@ -120,14 +163,18 @@ export default function KnowledgePage() {
   }
 
   function applyFolder(folder: DriveFolder) {
-    setFolderConfig(boxType, {
+    const config = {
       folderId: folder.id,
       folderUrl:
         folder.webViewLink ??
         `https://drive.google.com/drive/folders/${folder.id}`,
       folderName: folder.name,
       setAt: new Date().toISOString(),
-    });
+    };
+    setFolderConfig(boxType, config);
+    const merged = { ...loadKnowledgeSettings(), [boxType]: config };
+    saveKnowledgeSettings(merged);
+    void saveAppSettings({ knowledgeFolders: merged }).catch(() => {});
     setFolderInput("");
     setShowPicker(false);
     setError(null);
@@ -164,6 +211,7 @@ export default function KnowledgePage() {
   async function buildArchiveIndex() {
     if (!folderConfig?.folderId) return;
     setIndexing(true);
+    setIndexProgress({ current: 0, total: 0, fileName: "", phase: "scanning" });
     setError(null);
     try {
       const res = await fetch("/api/knowledge/index", {
@@ -172,15 +220,91 @@ export default function KnowledgePage() {
         body: JSON.stringify({
           folderId: folderConfig.folderId,
           boxType,
+          stream: true,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Indexing failed");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Indexing failed");
+      }
+      if (!res.body) throw new Error("Indexing failed — no response stream.");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let completePayload: {
+        folderId: string;
+        boxType: BoxType;
+        indexedAt: string;
+        documents: KnowledgeIndex["documents"];
+      } | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line) as {
+            type: string;
+            total?: number;
+            current?: number;
+            fileName?: string;
+            path?: string;
+            error?: string;
+            folderId?: string;
+            boxType?: BoxType;
+            indexedAt?: string;
+            documents?: KnowledgeIndex["documents"];
+          };
+
+          if (event.type === "scanning") {
+            setIndexProgress({
+              current: 0,
+              total: 0,
+              fileName: "",
+              phase: "scanning",
+            });
+          } else if (event.type === "total" && event.total != null) {
+            setIndexProgress({
+              current: 0,
+              total: event.total,
+              fileName: "",
+              phase: "indexing",
+            });
+          } else if (
+            event.type === "progress" &&
+            event.current != null &&
+            event.total != null
+          ) {
+            setIndexProgress({
+              current: event.current,
+              total: event.total,
+              fileName: event.fileName || event.path || "",
+              phase: "indexing",
+            });
+          } else if (event.type === "error") {
+            throw new Error(event.error || "Indexing failed");
+          } else if (event.type === "complete" && event.documents) {
+            completePayload = {
+              folderId: event.folderId || folderConfig.folderId,
+              boxType: event.boxType || boxType,
+              indexedAt: event.indexedAt || new Date().toISOString(),
+              documents: event.documents,
+            };
+          }
+        }
+      }
+
+      if (!completePayload) throw new Error("Indexing finished without results.");
       const index: KnowledgeIndex = {
-        folderId: folderConfig.folderId,
-        boxType,
-        indexedAt: data.indexedAt,
-        documents: data.documents,
+        folderId: completePayload.folderId,
+        boxType: completePayload.boxType,
+        indexedAt: completePayload.indexedAt,
+        documents: completePayload.documents,
       };
       saveKnowledgeIndex(index);
       setArchiveIndex(index);
@@ -188,15 +312,12 @@ export default function KnowledgePage() {
       setError(err instanceof Error ? err.message : "Indexing failed");
     } finally {
       setIndexing(false);
+      setIndexProgress(null);
     }
   }
 
   async function ask() {
     if (!folderConfig?.folderId || !question.trim()) return;
-    if (!archiveIndex?.documents.length) {
-      setError("Build the archive index first to scan nested folders and document content.");
-      return;
-    }
     setAsking(true);
     setError(null);
     setAnswer(null);
@@ -208,7 +329,6 @@ export default function KnowledgePage() {
           question,
           boxType,
           folderId: folderConfig.folderId,
-          index: archiveIndex.documents,
         }),
       });
       const data = await res.json();
@@ -314,12 +434,60 @@ export default function KnowledgePage() {
           ) : (
             <>
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-6 py-3 text-sm">
-                <span className="truncate text-[var(--text-muted)]">
-                  {folderLabel}
-                  {archiveIndex
-                    ? ` · ${archiveIndex.documents.length} docs indexed`
-                    : " · not indexed yet"}
-                </span>
+                <div className="min-w-0 flex-1">
+                  <span className="truncate text-[var(--text-muted)]">
+                    {folderLabel}
+                    {archiveIndex
+                      ? ` · ${archiveIndex.documents.length} docs indexed`
+                      : " · not indexed yet"}
+                  </span>
+                  {indexProgress && (
+                    <div className="mt-2 max-w-xl">
+                      <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-[var(--text-dim)]">
+                        <span>
+                          {indexProgress.phase === "scanning"
+                            ? "Scanning folders to count files…"
+                            : indexProgress.total > 0
+                              ? `Document ${indexProgress.current} of ${indexProgress.total}`
+                              : "Indexing…"}
+                        </span>
+                        {indexProgress.phase === "indexing" &&
+                          indexProgress.total > 0 && (
+                            <span>
+                              {Math.round(
+                                (indexProgress.current / indexProgress.total) *
+                                  100,
+                              )}
+                              %
+                            </span>
+                          )}
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-soft)]">
+                        <div
+                          className="h-full rounded-full bg-[var(--accent)] transition-all duration-300"
+                          style={{
+                            width:
+                              indexProgress.phase === "scanning"
+                                ? "15%"
+                                : indexProgress.total > 0
+                                  ? `${Math.max(
+                                      4,
+                                      (indexProgress.current /
+                                        indexProgress.total) *
+                                        100,
+                                    )}%`
+                                  : "4%",
+                          }}
+                        />
+                      </div>
+                      {indexProgress.fileName && (
+                        <p className="mt-1 truncate text-[10px] text-[var(--text-dim)]">
+                          {indexProgress.fileName}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -420,7 +588,8 @@ export default function KnowledgePage() {
                   </h3>
                   <p className="mb-3 text-xs text-[var(--text-muted)]">
                     Index once to scan all nested folders and document content.
-                    Questions then search the cached archive instantly.
+                    The index is saved to Google Drive (shared for everyone).
+                    Questions search that cached archive instantly.
                   </p>
                   {archiveIndex && (
                     <p className="mb-3 text-[10px] text-[var(--text-dim)]">

@@ -8,6 +8,7 @@ import {
   Boxes,
   BarChart3,
   BookOpen,
+  ClipboardList,
   Settings,
   PanelLeftClose,
 } from "lucide-react";
@@ -18,6 +19,7 @@ const nav = [
   { href: "/builder", label: "Box Builder", icon: Boxes },
   { href: "/analytics", label: "Analytics", icon: BarChart3, disabled: true },
   { href: "/knowledge", label: "Knowledge Base", icon: BookOpen },
+  { href: "/features-needed", label: "Features NEEDED", icon: ClipboardList },
 ];
 
 export function Sidebar() {

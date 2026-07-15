@@ -5,8 +5,8 @@ import {
 } from "@/lib/mini-box";
 import type { AiSectionId } from "@/lib/claude-models";
 import {
-  DEFAULT_CLAUDE_MODEL,
   isValidClaudeModel,
+  resolveClaudeModel,
 } from "@/lib/claude-models";
 
 export type BoxKind = "mini-box" | "ciab";
@@ -148,8 +148,7 @@ function readSectionModels(): Partial<Record<AiSectionId, string>> {
 
 export function loadSectionModelPreference(sectionId: AiSectionId): string {
   const stored = readSectionModels()[sectionId];
-  if (stored && isValidClaudeModel(stored)) return stored;
-  return DEFAULT_CLAUDE_MODEL;
+  return resolveClaudeModel(stored);
 }
 
 export function saveSectionModelPreference(

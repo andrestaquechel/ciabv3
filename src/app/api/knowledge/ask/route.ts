@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { parseDriveFolderId } from "@/lib/google-drive";
+import { loadKnowledgeIndexFromDrive } from "@/lib/box-studio-drive-data";
 import type { IndexedDocument } from "@/lib/knowledge-cache";
 import {
   anthropicConfigured,
   anthropicText,
   anthropicMissingKeyMessage,
+  resolveAnthropicModel,
 } from "@/lib/anthropic";
 
 type Body = {
@@ -46,7 +48,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const indexed = body.index?.filter((d) => d.text?.trim()) ?? [];
+    let indexed = body.index?.filter((d) => d.text?.trim()) ?? [];
+    if (indexed.length === 0) {
+      const stored = await loadKnowledgeIndexFromDrive(folderId);
+      if (stored?.boxType === body.boxType) {
+        indexed = stored.documents.filter((d) => d.text?.trim());
+      }
+    }
+
     if (indexed.length === 0) {
       return NextResponse.json(
         {
@@ -78,15 +87,18 @@ export async function POST(request: Request) {
       });
     }
 
+    const model = await resolveAnthropicModel();
     const answer = await anthropicText({
       system: `You answer questions about Living Security ${body.boxType === "ciab" ? "Campaign in a Box (CIAB)" : "Mini Box"} content from an indexed Google Drive archive. Cite specific file names and paths when relevant. If nothing matches, say so clearly. Today is ${new Date().toISOString().slice(0, 10)}.`,
       user: `Question: ${body.question}\n\nIndexed archive (${indexed.length} documents):\n${context}`,
       temperature: 0.2,
       maxTokens: 4096,
+      model,
     });
 
     return NextResponse.json({
       source: "anthropic",
+      model,
       answer,
       fileCount: indexed.length,
     });

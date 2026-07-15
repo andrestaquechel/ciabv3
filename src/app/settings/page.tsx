@@ -8,8 +8,14 @@ import {
   parseDriveFolderId,
   type BoxType,
 } from "@/lib/knowledge-store";
+import {
+  CLAUDE_MODEL_OPTIONS,
+  fetchAppSettings,
+  saveAppSettings,
+} from "@/lib/app-settings-client";
+import { DEFAULT_CLAUDE_MODEL } from "@/lib/claude-models";
 import { signIn, signOut, useSession } from "next-auth/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
@@ -20,6 +26,46 @@ export default function SettingsPage() {
   const [ciabUrl, setCiabUrl] = useState(settings.ciab?.folderUrl ?? "");
   const [saved, setSaved] = useState(false);
   const [activePicker, setActivePicker] = useState<BoxType | null>(null);
+  const [claudeModel, setClaudeModel] = useState(DEFAULT_CLAUDE_MODEL);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!session?.accessToken) {
+      setLoadingSettings(false);
+      return;
+    }
+    void (async () => {
+      try {
+        const remote = await fetchAppSettings();
+        if (remote?.knowledgeFolders) {
+          const merged = { ...loadKnowledgeSettings(), ...remote.knowledgeFolders };
+          saveKnowledgeSettings(merged);
+          setSettings(merged);
+          setMiniBoxUrl(merged["mini-box"]?.folderUrl ?? "");
+          setCiabUrl(merged.ciab?.folderUrl ?? "");
+        }
+        if (remote?.claudeModel) setClaudeModel(remote.claudeModel);
+      } catch (err) {
+        setSettingsError(
+          err instanceof Error ? err.message : "Could not load shared settings.",
+        );
+      } finally {
+        setLoadingSettings(false);
+      }
+    })();
+  }, [session?.accessToken]);
+
+  async function persistRemote(
+    nextSettings: typeof settings,
+    nextModel: string,
+  ) {
+    if (!session?.accessToken) return;
+    await saveAppSettings({
+      claudeModel: nextModel,
+      knowledgeFolders: nextSettings,
+    });
+  }
 
   function save(type: BoxType, url: string, folderName?: string) {
     const folderId = parseDriveFolderId(url);
@@ -37,7 +83,27 @@ export default function SettingsPage() {
     if (type === "ciab") setCiabUrl(url.trim());
     setSaved(true);
     setActivePicker(null);
+    setSettingsError(null);
+    void persistRemote(next, claudeModel).catch((err) => {
+      setSettingsError(
+        err instanceof Error ? err.message : "Saved locally but not to shared Drive.",
+      );
+    });
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function saveClaudeModel(model: string) {
+    setClaudeModel(model);
+    setSettingsError(null);
+    try {
+      await saveAppSettings({ claudeModel: model, knowledgeFolders: settings });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setSettingsError(
+        err instanceof Error ? err.message : "Could not save Claude model.",
+      );
+    }
   }
 
   function saveFromPicker(
@@ -168,16 +234,49 @@ export default function SettingsPage() {
           {saved && (
             <p className="mt-3 text-xs text-[var(--accent)]">Saved.</p>
           )}
+          {settingsError && (
+            <p className="mt-3 text-xs text-[var(--danger)]">{settingsError}</p>
+          )}
         </div>
 
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
           <h2 className="text-base font-medium">AI (Anthropic Claude)</h2>
           <p className="mt-2 text-sm text-[var(--text-muted)]">
-            AI generate, topic research, and Knowledge Base Q&amp;A use{" "}
-            <strong className="font-medium text-[var(--text)]">Anthropic Claude</strong>{" "}
-            via a server-side API key — not stored in the browser. In the builder,
-            each section tab has its own Claude model dropdown (saved in this browser).
+            Choose the default Claude model for the whole app — Knowledge Base Q&amp;A,
+            AI generate, and research. Saved to shared Google Drive so everyone on
+            the team uses the same model. Builder section tabs can still override
+            per section in this browser.
           </p>
+
+          {session?.accessToken ? (
+            <div className="mt-4">
+              <label className="text-xs font-medium text-[var(--text-dim)]">
+                Default Claude model
+              </label>
+              <select
+                value={claudeModel}
+                disabled={loadingSettings}
+                onChange={(e) => void saveClaudeModel(e.target.value)}
+                className="mt-2 w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-sm disabled:opacity-50"
+              >
+                {CLAUDE_MODEL_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-[11px] text-[var(--text-dim)]">
+                Stored in your team&apos;s <strong>Box Studio Data</strong> folder on
+                Google Drive. Re-connect Google once if indexing or saving fails
+                (new write permission).
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-[var(--text-muted)]">
+              Connect Google above to change the shared Claude model.
+            </p>
+          )}
+
           <div className="mt-4 space-y-3 text-sm text-[var(--text-muted)]">
             <div>
               <div className="text-[11px] font-medium uppercase tracking-wider text-[var(--text-dim)]">
@@ -189,7 +288,7 @@ export default function SettingsPage() {
               <pre className="mt-2 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] p-3 text-xs text-[var(--text)]">
 {`ANTHROPIC_API_KEY=sk-ant-...
 # optional:
-ANTHROPIC_MODEL=claude-sonnet-4-20250514`}
+ANTHROPIC_MODEL=claude-sonnet-4-6`}
               </pre>
             </div>
             <div>

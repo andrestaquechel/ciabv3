@@ -1,7 +1,19 @@
-import {
-  DEFAULT_CLAUDE_MODEL,
-  resolveClaudeModel,
-} from "@/lib/claude-models";
+import { resolveClaudeModel } from "@/lib/claude-models";
+import { loadAppSettingsFromDrive } from "@/lib/box-studio-drive-data";
+
+export async function resolveAnthropicModel(
+  preferred?: string,
+): Promise<string> {
+  try {
+    const settings = await loadAppSettingsFromDrive();
+    return resolveClaudeModel(
+      preferred,
+      settings?.claudeModel ?? process.env.ANTHROPIC_MODEL,
+    );
+  } catch {
+    return resolveClaudeModel(preferred, process.env.ANTHROPIC_MODEL);
+  }
+}
 
 export {
   DEFAULT_CLAUDE_MODEL,
@@ -48,7 +60,9 @@ export async function anthropicText({
     throw new Error(anthropicMissingKeyMessage());
   }
 
-  const resolvedModel = resolveClaudeModel(model, process.env.ANTHROPIC_MODEL);
+  const resolvedModel = model
+    ? resolveClaudeModel(model, process.env.ANTHROPIC_MODEL)
+    : await resolveAnthropicModel();
 
   const res = await fetch(ANTHROPIC_API_URL, {
     method: "POST",

@@ -28,7 +28,7 @@ No Google OAuth required.
 |----------|-------|
 | `GIPHY_API_KEY` | Live GIF search (set) |
 | `ANTHROPIC_API_KEY` | Optional live AI (Claude) for generate, research, and Knowledge Base |
-| `ANTHROPIC_MODEL` | Optional Claude model override (default `claude-sonnet-4-20250514`) |
+| `ANTHROPIC_MODEL` | Optional Claude model override (default `claude-sonnet-4-6`) |
 | `AUTH_SECRET` | Optional leftover; not required for PPTX flow |
 
 ## Template

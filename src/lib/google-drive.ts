@@ -125,30 +125,62 @@ const INDEXABLE_MIMES = new Set([
   "text/plain",
 ]);
 
+export type IndexProgressEvent =
+  | { type: "scanning"; message: string }
+  | { type: "total"; total: number }
+  | {
+      type: "progress";
+      current: number;
+      total: number;
+      fileName: string;
+      path: string;
+    };
+
+export type IndexedDocument = {
+  id: string;
+  name: string;
+  path: string;
+  mimeType: string;
+  modifiedTime: string;
+  text: string;
+  webViewLink?: string;
+};
+
+/** Walk the archive tree and count every file (not folders). */
+export async function countArchiveFiles(
+  folderId: string,
+  pathPrefix = "",
+  maxFiles = 250,
+): Promise<number> {
+  let count = 0;
+
+  async function walk(currentFolderId: string, path: string) {
+    if (count >= maxFiles) return;
+    const entries = await listFolderEntries(currentFolderId);
+    for (const entry of entries) {
+      if (count >= maxFiles) break;
+      const entryPath = path ? `${path}/${entry.name}` : entry.name;
+      if (entry.isFolder) {
+        await walk(entry.id, entryPath);
+      } else {
+        count += 1;
+      }
+    }
+  }
+
+  await walk(folderId, pathPrefix);
+  return count;
+}
+
 export async function indexArchiveRecursive(
   folderId: string,
   pathPrefix = "",
   maxFiles = 250,
-): Promise<
-  Array<{
-    id: string;
-    name: string;
-    path: string;
-    mimeType: string;
-    modifiedTime: string;
-    text: string;
-    webViewLink?: string;
-  }>
-> {
-  const results: Array<{
-    id: string;
-    name: string;
-    path: string;
-    mimeType: string;
-    modifiedTime: string;
-    text: string;
-    webViewLink?: string;
-  }> = [];
+  onProgress?: (event: IndexProgressEvent) => void,
+  knownTotal?: number,
+): Promise<IndexedDocument[]> {
+  const results: IndexedDocument[] = [];
+  const progressTotal = knownTotal ?? maxFiles;
 
   async function walk(folderId: string, path: string) {
     if (results.length >= maxFiles) return;
@@ -158,27 +190,37 @@ export async function indexArchiveRecursive(
       const entryPath = path ? `${path}/${entry.name}` : entry.name;
       if (entry.isFolder) {
         await walk(entry.id, entryPath);
-      } else if (INDEXABLE_MIMES.has(entry.mimeType)) {
-        const text = await exportFileText(entry.id, entry.mimeType);
-        results.push({
-          id: entry.id,
-          name: entry.name,
-          path: entryPath,
-          mimeType: entry.mimeType,
-          modifiedTime: entry.modifiedTime,
-          text,
-          webViewLink: entry.webViewLink,
-        });
       } else {
-        results.push({
-          id: entry.id,
-          name: entry.name,
+        const current = results.length + 1;
+        onProgress?.({
+          type: "progress",
+          current,
+          total: progressTotal,
+          fileName: entry.name,
           path: entryPath,
-          mimeType: entry.mimeType,
-          modifiedTime: entry.modifiedTime,
-          text: `[File: ${entry.name}]`,
-          webViewLink: entry.webViewLink,
         });
+        if (INDEXABLE_MIMES.has(entry.mimeType)) {
+          const text = await exportFileText(entry.id, entry.mimeType);
+          results.push({
+            id: entry.id,
+            name: entry.name,
+            path: entryPath,
+            mimeType: entry.mimeType,
+            modifiedTime: entry.modifiedTime,
+            text,
+            webViewLink: entry.webViewLink,
+          });
+        } else {
+          results.push({
+            id: entry.id,
+            name: entry.name,
+            path: entryPath,
+            mimeType: entry.mimeType,
+            modifiedTime: entry.modifiedTime,
+            text: `[File: ${entry.name}]`,
+            webViewLink: entry.webViewLink,
+          });
+        }
       }
     }
   }

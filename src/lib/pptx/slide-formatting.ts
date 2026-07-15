@@ -1,24 +1,23 @@
-/** Shadow AI Mini Box template — slide text formatting for pptx-viewer fidelity */
+/** Shadow AI Mini Box template — slide formatting helpers for pptx-viewer fidelity.
+ *
+ * Philosophy: the template is the source of truth. We do NOT reposition shapes or
+ * override the template's own run sizes/colors on content slides — doing so is what
+ * caused white text, wrong sizes, and header/GIF overlap. We only patch the two
+ * placeholder-title slide families (cover + dividers) whose empty run properties
+ * pptx-viewer cannot resolve on its own.
+ */
 
 const FONT_INTER = `<a:latin typeface="Inter Tight"/><a:ea typeface="Inter Tight"/><a:cs typeface="Inter Tight"/><a:sym typeface="Inter Tight"/>`;
 const FONT_INTER_MEDIUM = `<a:latin typeface="Inter Tight Medium"/><a:ea typeface="Inter Tight Medium"/><a:cs typeface="Inter Tight Medium"/><a:sym typeface="Inter Tight Medium"/>`;
 const FILL_BLACK = `<a:solidFill><a:srgbClr val="000000"/></a:solidFill>`;
-const FILL_DK1 = `<a:solidFill><a:schemeClr val="dk1"/></a:solidFill>`;
+const FILL_WHITE = `<a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>`;
 const FILL_ACCENT1 = `<a:solidFill><a:schemeClr val="accent1"/></a:solidFill>`;
 
 export const TEMPLATE_NAME = "Shadow AI Mini Box";
 export const TEMPLATE_FILE = "mini-box-master.pptx";
 
-/** cx/cy from presentation.xml (EMU) */
+/** cx/cy from presentation.xml (EMU) — portrait US-Letter one-pager */
 export const SLIDE_ASPECT = 7772400 / 10058400;
-
-/** Per-slide text shape default sizes (hundredths of a point) */
-export const SLIDE_SHAPE_SIZES: Record<number, Record<number, number>> = {
-  2: { 0: 1600, 1: 1100, 2: 1100 },
-  4: { 0: 1100, 1: 1100, 3: 1600, 4: 1100 },
-  5: { 0: 1100, 1: 1600 },
-  7: { 0: 1600, 1: 1100 },
-};
 
 const DIVIDER_TITLE_LST_STYLE =
   '<a:lstStyle><a:lvl1pPr lvl="0"><a:spcBef><a:spcPts val="0"/></a:spcBef><a:spcAft><a:spcPts val="0"/></a:spcAft><a:buSzPts val="5600"/><a:buFont typeface="Inter Tight"/><a:buNone/><a:defRPr sz="5600">' +
@@ -30,7 +29,7 @@ const DIVIDER_END_PARA_RPR = `<a:endParaRPr sz="5600">${FILL_BLACK}${FONT_INTER}
 const COVER_TOPIC_RUN_PR = `<a:rPr lang="en" sz="2600">${FILL_ACCENT1}${FONT_INTER}</a:rPr>`;
 const COVER_SUBTITLE_RUN_PR = `<a:rPr lang="en" sz="1800" u="sng">${FONT_INTER_MEDIUM}</a:rPr>`;
 
-function escapeXml(text: string) {
+export function escapeXml(text: string) {
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -38,7 +37,7 @@ function escapeXml(text: string) {
     .replace(/"/g, "&quot;");
 }
 
-function getTextShapes(slideXml: string): string[] {
+export function getTextShapes(slideXml: string): string[] {
   const shapeRegex = /<p:sp\b[\s\S]*?<\/p:sp>/g;
   const textShapes: string[] = [];
   let m: RegExpExecArray | null;
@@ -48,150 +47,18 @@ function getTextShapes(slideXml: string): string[] {
   return textShapes;
 }
 
-function replaceTextShape(slideXml: string, shapeIndex: number, newShape: string): string {
+export function replaceTextShape(
+  slideXml: string,
+  shapeIndex: number,
+  newShape: string,
+): string {
   const shapes = getTextShapes(slideXml);
   if (shapeIndex >= shapes.length) return slideXml;
   return slideXml.replace(shapes[shapeIndex], newShape);
 }
 
-function buildRunPr(sz: number, opts?: { underline?: boolean; accent?: boolean }) {
-  const underline = opts?.underline ? ' u="sng"' : "";
-  const fill = opts?.accent ? FILL_ACCENT1 : FILL_BLACK;
-  const font = opts?.underline ? FONT_INTER_MEDIUM : FONT_INTER;
-  return `<a:rPr lang="en" sz="${sz}"${underline}>${fill}${font}</a:rPr>`;
-}
-
-function extractParagraphProperties(shapeXml: string): string {
-  const fromPara = shapeXml.match(/<a:pPr[\s\S]*?<\/a:pPr>/)?.[0];
-  if (fromPara) return fromPara;
-  return '<a:pPr indent="0" lvl="0" marL="0" rtl="0" algn="l"/>';
-}
-
-/** Rebuild all paragraphs in a text shape — avoids losing rPr on placeholder paras */
-export function rebuildShapeParagraphs(
-  shapeXml: string,
-  lines: string[],
-  sz: number,
-): string {
-  const pPr = extractParagraphProperties(shapeXml);
-  const rPr = buildRunPr(sz);
-  const content = lines
-    .map(
-      (line) =>
-        `<a:p>${pPr}<a:r>${rPr}<a:t>${escapeXml(line)}</a:t></a:r></a:p>`,
-    )
-    .join("");
-
-  return shapeXml.replace(
-    /(<a:lstStyle\/>|<a:lstStyle>[\s\S]*?<\/a:lstStyle>)([\s\S]*?)(<\/a:txBody>)/,
-    `$1${content}$3`,
-  );
-}
-
-function ensureRunsHaveVisibleText(shapeXml: string, sz: number): string {
-  const rPr = buildRunPr(sz);
-
-  let result = shapeXml.replace(/<a:r>\s*<a:t>/g, `<a:r>${rPr}<a:t>`);
-  result = result.replace(/<a:rPr lang="en"\/>/g, rPr);
-  result = result.replace(
-    /<a:endParaRPr\/>/g,
-    `<a:endParaRPr sz="${sz}">${FILL_BLACK}${FONT_INTER}</a:endParaRPr>`,
-  );
-
-  return result;
-}
-
-function setShapeOffset(
-  shapeXml: string,
-  y: number,
-  opts?: { cy?: number },
-): string {
-  let next = shapeXml.replace(
-    /(<a:off x="\d+" y=")\d+(")/,
-    `$1${y}$2`,
-  );
-  if (opts?.cy !== undefined) {
-    next = next.replace(
-      /(<a:ext cx="\d+" cy=")\d+(")/,
-      `$1${opts.cy}$2`,
-    );
-  }
-  return next;
-}
-
-/** Reposition GIFs and text boxes so content does not overlap headers or GIFs */
-export function fixSlideLayout(slideNum: number, slideXml: string): string {
-  let xml = slideXml;
-
-  if (slideNum === 2) {
-    // Move GIF below intro block; keep contents list below GIF
-    xml = xml.replace(
-      /(<p:pic>[\s\S]*?<a:off x="\d+" y=")\d+(")/,
-      `$1${3_100_000}$2`,
-    );
-    xml = xml.replace(
-      /(<p:pic>[\s\S]*?<a:ext cx="\d+" cy=")\d+(")/,
-      `$1${2_300_000}$2`,
-    );
-
-    const shapes = getTextShapes(xml);
-    if (shapes[1]) {
-      xml = replaceTextShape(
-        xml,
-        1,
-        setShapeOffset(shapes[1], 1_650_000, { cy: 1_350_000 }),
-      );
-    }
-    if (shapes[2]) {
-      xml = replaceTextShape(
-        xml,
-        2,
-        setShapeOffset(shapes[2], 5_650_000),
-      );
-    }
-  }
-
-  if (slideNum === 4) {
-    // Keep subject below red header band; push main body below subject
-    xml = xml.replace(
-      /(<p:pic>[\s\S]*?<a:off x="\d+" y=")\d+(")/,
-      `$1${6_700_000}$2`,
-    );
-
-    const shapes = getTextShapes(xml);
-    if (shapes[0]) {
-      xml = replaceTextShape(
-        xml,
-        0,
-        setShapeOffset(shapes[0], 2_050_000, { cy: 1_450_000 }),
-      );
-    }
-    if (shapes[4]) {
-      xml = replaceTextShape(xml, 4, setShapeOffset(shapes[4], 1_050_000));
-    }
-  }
-
-  if (slideNum === 7) {
-    xml = xml.replace(
-      /(<p:pic>[\s\S]*?<a:off x="\d+" y=")\d+(")/,
-      `$1${5_450_000}$2`,
-    );
-
-    const shapes = getTextShapes(xml);
-    if (shapes[1]) {
-      xml = replaceTextShape(
-        xml,
-        1,
-        setShapeOffset(shapes[1], 1_650_000, { cy: 1_450_000 }),
-      );
-    }
-  }
-
-  return xml;
-}
-
 /** Divider slides (3, 6): One-Pager and Chats titles */
-export function fixDividerSlideTitleFormatting(slideXml: string): string {
+function fixDividerSlideTitleFormatting(slideXml: string): string {
   if (!/<p:ph type="title"\/>/.test(slideXml)) return slideXml;
 
   return slideXml
@@ -224,25 +91,79 @@ function fixCoverSlide(slideXml: string): string {
   return xml;
 }
 
-function fixContentSlide(slideNum: number, slideXml: string): string {
-  const sizeMap = SLIDE_SHAPE_SIZES[slideNum];
-  if (!sizeMap) return slideXml;
+export { fixDividerSlideTitleFormatting };
 
-  let xml = slideXml;
-  const shapes = getTextShapes(xml);
-
-  shapes.forEach((shape, idx) => {
-    const sz = sizeMap[idx] ?? 1100;
-    const patched = ensureRunsHaveVisibleText(shape, sz);
-    xml = replaceTextShape(xml, idx, patched);
-  });
-
-  return xml;
-}
-
-/** Apply all template formatting fixes for pptx-viewer preview fidelity */
+/**
+ * Apply template formatting fixes. Only the placeholder-title slides (cover=1,
+ * dividers=3/6) need help; content slides (2/4/5/7) are left exactly as the
+ * template defines them so the preview matches the source deck.
+ */
 export function fixSlideFormatting(slideNum: number, slideXml: string): string {
   if (slideNum === 1) return fixCoverSlide(slideXml);
   if (slideNum === 3 || slideNum === 6) return fixDividerSlideTitleFormatting(slideXml);
-  return fixContentSlide(slideNum, slideXml);
+  return slideXml;
+}
+
+/**
+ * Minimum body-box heights (EMU) that keep long paragraphs fully visible.
+ *
+ * The template's body boxes are top-anchored with `noAutofit`, so in PowerPoint
+ * long text simply overflows and stays visible. `pptx-viewer` instead clips text
+ * to the box height, hiding paragraphs. Growing these (invisible, fill-less)
+ * boxes downward has no effect in PowerPoint but lets the preview show the full
+ * text. Values stay clear of the GIF / next element below each box.
+ */
+const CONTENT_BOX_MIN_CY: Record<number, Record<number, number>> = {
+  4: { 0: 4_600_000 }, // greeting + body pt1 (GIF starts at y≈6_540_750)
+  5: { 0: 6_000_000 }, // body pt2 + signature (nothing below on the slide)
+  7: { 1: 3_300_000 }, // chat message (GIF starts at y≈5_261_075)
+};
+
+/**
+ * Color the content-slide title placeholders white.
+ *
+ * The header and subject on content slides are `title` placeholders sitting on
+ * the red band. Their runs carry a `schemeClr dk1` fill, but because they are
+ * title placeholders PowerPoint resolves them to the layout's light color and
+ * renders them white. pptx-viewer does not replicate that placeholder color
+ * resolution, so it renders them dark. Since these are static template labels,
+ * we drop the placeholder designation (so pptx-viewer honors the run fill) and
+ * force white on any `title` placeholder shape (header + subject), leaving the
+ * dark body/callout text untouched. Position/size stay intact because these
+ * shapes carry explicit off/ext and run sizes.
+ */
+export function fixContentHeaderColor(slideXml: string): string {
+  let xml = slideXml;
+  for (const shape of getTextShapes(xml)) {
+    if (!/<p:ph[^>]*type="title"/.test(shape)) continue;
+    const patched = shape
+      .replace(/<p:ph[^>]*\/>/g, "")
+      .replace(/<a:schemeClr val="dk1"\/>/g, `<a:srgbClr val="FFFFFF"/>`)
+      .replace(/<a:rPr lang="en"\/>/g, `<a:rPr lang="en">${FILL_WHITE}</a:rPr>`)
+      .replace(
+        /<a:endParaRPr([^>]*)\/>/g,
+        `<a:endParaRPr$1>${FILL_WHITE}</a:endParaRPr>`,
+      );
+    if (patched !== shape) xml = xml.replace(shape, patched);
+  }
+  return xml;
+}
+
+/** Grow overflow-prone content boxes so pptx-viewer renders their full text. */
+export function fixContentBoxOverflow(slideNum: number, slideXml: string): string {
+  const map = CONTENT_BOX_MIN_CY[slideNum];
+  if (!map) return slideXml;
+
+  let xml = slideXml;
+  for (const [idxStr, minCy] of Object.entries(map)) {
+    const idx = Number(idxStr);
+    const shape = getTextShapes(xml)[idx];
+    if (!shape) continue;
+    const patched = shape.replace(
+      /(<a:ext cx="\d+" cy=")(\d+)(")/,
+      (full, pre, cy, post) => (Number(cy) >= minCy ? full : `${pre}${minCy}${post}`),
+    );
+    if (patched !== shape) xml = xml.replace(shape, patched);
+  }
+  return xml;
 }
