@@ -19,6 +19,11 @@ export { fixSlideFormatting } from "@/lib/pptx/slide-formatting";
 const TEMPLATE_PATH = path.join(process.cwd(), "templates", TEMPLATE_FILE);
 const SIGNATURE_PLACEHOLDER = "{{ SIGNATURE }}";
 
+/** Surface template-mapping problems instead of silently shipping a wrong deck. */
+function warnPptx(message: string) {
+  console.warn(`[pptx-export] ${message}`);
+}
+
 /** Slide → GIF media path (Shadow AI Mini Box template) */
 const GIF_SLOTS: Record<number, string> = {
   2: "ppt/media/image6.gif",
@@ -31,9 +36,13 @@ async function gifToBuffer(gif: GifSelection): Promise<Buffer | null> {
   const url = gif.url || gif.previewUrl;
   try {
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      warnPptx(`GIF fetch failed (${res.status}) for ${url}`);
+      return null;
+    }
     return Buffer.from(await res.arrayBuffer());
-  } catch {
+  } catch (err) {
+    warnPptx(`GIF fetch threw for ${url}: ${err instanceof Error ? err.message : "error"}`);
     return null;
   }
 }
@@ -42,9 +51,9 @@ async function gifToBuffer(gif: GifSelection): Promise<Buffer | null> {
 function normalizeText(value: string): string {
   return (value || "")
     .replace(/\r\n/g, "\n")
-    .replace(/[\u2018\u2019\u02BC]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
-    .replace(/\u2026/g, "...")
+    .replace(/[‘’ʼ]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/…/g, "...")
     .replace(/[ \t]+/g, " ")
     .replace(/[ \t]*\n[ \t]*/g, "\n")
     .trim();
@@ -105,10 +114,16 @@ function replaceShapeText(
   slideXml: string,
   shapeIndex: number,
   newText: string,
+  slideNum?: number,
 ): string {
   const shapes = getTextShapes(slideXml);
   const shape = shapes[shapeIndex];
-  if (!shape) return slideXml;
+  if (!shape) {
+    warnPptx(
+      `slide ${slideNum ?? "?"}: text shape index ${shapeIndex} not found (only ${shapes.length} text shapes) — edit skipped. Template shape order may have shifted.`,
+    );
+    return slideXml;
+  }
 
   const paragraphs = [...shape.matchAll(/<a:p>[\s\S]*?<\/a:p>/g)].map((m) => m[0]);
   if (!paragraphs.length) return slideXml;
@@ -225,9 +240,14 @@ export async function buildMiniBoxFromTemplate(
 
   for (const [slideNum, slideEdits] of bySlide) {
     const slidePath = `ppt/slides/slide${slideNum}.xml`;
-    let xml = await zip.file(slidePath)!.async("string");
+    const slideFile = zip.file(slidePath);
+    if (!slideFile) {
+      warnPptx(`${slidePath} missing from template — ${slideEdits.length} edit(s) skipped.`);
+      continue;
+    }
+    let xml = await slideFile.async("string");
     for (const edit of slideEdits) {
-      xml = replaceShapeText(xml, edit.shapeIndex, edit.value);
+      xml = replaceShapeText(xml, edit.shapeIndex, edit.value, edit.slide);
     }
     zip.file(slidePath, xml);
   }
@@ -236,7 +256,10 @@ export async function buildMiniBoxFromTemplate(
   for (const slideNum of [1, 3, 6]) {
     const slidePath = `ppt/slides/slide${slideNum}.xml`;
     const file = zip.file(slidePath);
-    if (!file) continue;
+    if (!file) {
+      warnPptx(`${slidePath} missing — formatting fix skipped.`);
+      continue;
+    }
     const xml = fixSlideFormatting(slideNum, await file.async("string"));
     zip.file(slidePath, xml);
   }
@@ -246,7 +269,10 @@ export async function buildMiniBoxFromTemplate(
   for (const slideNum of [2, 4, 5, 7]) {
     const slidePath = `ppt/slides/slide${slideNum}.xml`;
     const file = zip.file(slidePath);
-    if (!file) continue;
+    if (!file) {
+      warnPptx(`${slidePath} missing — content-slide fix skipped.`);
+      continue;
+    }
     let xml = await file.async("string");
     xml = fixContentHeaderColor(xml);
     xml = fixContentBoxOverflow(slideNum, xml);
@@ -261,9 +287,21 @@ export async function buildMiniBoxFromTemplate(
 
   for (const [slideNum, gif] of gifs) {
     const mediaPath = GIF_SLOTS[slideNum];
-    if (!mediaPath || !gif) continue;
+    if (!mediaPath) {
+      warnPptx(`no GIF slot mapped for slide ${slideNum}.`);
+      continue;
+    }
+    if (!gif) continue;
+    if (!zip.file(mediaPath)) {
+      warnPptx(`GIF media slot ${mediaPath} (slide ${slideNum}) not in template — GIF not injected.`);
+      continue;
+    }
     const buf = await gifToBuffer(gif);
-    if (buf) zip.file(mediaPath, buf);
+    if (buf) {
+      zip.file(mediaPath, buf);
+    } else {
+      warnPptx(`slide ${slideNum} GIF could not be loaded — kept template default.`);
+    }
   }
 
   return Buffer.from(
