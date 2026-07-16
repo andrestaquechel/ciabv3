@@ -44,7 +44,7 @@ import {
 } from "@/lib/slack/newbox-handlers";
 import { startCsmReview } from "@/lib/slack/csm-review";
 import { applyCsmFeedbackAndFinalize } from "@/lib/slack/morgan-review";
-import { monthCiabTopic, monthCalendarLabel, MONTH_LABELS } from "@/lib/annual-calendar-types";
+import { monthCiabTopic, monthCalendarLabel, MONTH_LABELS, resolveCalendarYear } from "@/lib/annual-calendar-types";
 import { resolveSlackReview } from "@/lib/slack/review-settings";
 
 type SlackFile = { id: string; mimetype?: string; filetype?: string };
@@ -756,12 +756,15 @@ export async function handleBlockActions(payload: {
     if (!workflowId || !monthNumber || monthNumber < 1 || monthNumber > 12) return;
 
     let monthLabel = MONTH_LABELS[monthNumber - 1];
+    let year = new Date().getFullYear();
     try {
       const calendars = await loadAnnualCalendarsConfig();
+      year = resolveCalendarYear(calendars, year);
       monthLabel = monthCalendarLabel(
         calendars,
         monthNumber,
         "mini-box",
+        year,
       );
     } catch {
       // use plain month name
@@ -771,7 +774,7 @@ export async function handleBlockActions(payload: {
       workflowId,
       monthNumber,
       monthLabel,
-      year: new Date().getFullYear(),
+      year,
       channel,
       threadTs,
       userId,

@@ -2,18 +2,50 @@ import type {
   AnnualCalendarsConfig,
   ParsedAnnualCalendar,
 } from "@/lib/annual-calendar-types";
+import {
+  loadAnnualCalendarsFromDrive,
+  saveAnnualCalendarToDrive,
+} from "@/lib/box-studio-drive-data";
 import { getDb } from "@/lib/db/sqlite";
 
 type CalendarRow = {
   year: number;
   data: string;
+  updated_at?: string;
 };
 
 function rowToCalendar(row: CalendarRow): ParsedAnnualCalendar {
   return JSON.parse(row.data) as ParsedAnnualCalendar;
 }
 
-export async function saveAnnualCalendar(
+function calendarUpdatedAt(calendar: ParsedAnnualCalendar): string {
+  return calendar.parsedAt || new Date(0).toISOString();
+}
+
+function mergeCalendarConfigs(
+  ...sources: AnnualCalendarsConfig[]
+): AnnualCalendarsConfig {
+  const merged: AnnualCalendarsConfig = {};
+
+  for (const source of sources) {
+    for (const [yearKey, calendar] of Object.entries(source)) {
+      const existing = merged[yearKey];
+      if (!existing) {
+        merged[yearKey] = calendar;
+        continue;
+      }
+      if (
+        calendarUpdatedAt(calendar) >= calendarUpdatedAt(existing)
+      ) {
+        merged[yearKey] = calendar;
+      }
+    }
+  }
+
+  return merged;
+}
+
+async function saveAnnualCalendarSqlite(
   calendar: ParsedAnnualCalendar,
 ): Promise<void> {
   const db = await getDb();
@@ -39,10 +71,10 @@ export async function saveAnnualCalendar(
   });
 }
 
-export async function loadAnnualCalendarsConfig(): Promise<AnnualCalendarsConfig> {
+async function loadAnnualCalendarsSqlite(): Promise<AnnualCalendarsConfig> {
   const db = await getDb();
   const result = await db.execute(
-    "SELECT year, data FROM annual_calendars ORDER BY year DESC",
+    "SELECT year, data, updated_at FROM annual_calendars ORDER BY year DESC",
   );
 
   const config: AnnualCalendarsConfig = {};
@@ -51,25 +83,51 @@ export async function loadAnnualCalendarsConfig(): Promise<AnnualCalendarsConfig
     config[String(year)] = rowToCalendar({
       year,
       data: String(row.data),
+      updated_at: row.updated_at ? String(row.updated_at) : undefined,
     });
   }
   return config;
 }
 
+/** Persist calendar locally (SQLite) and to shared Drive for Vercel durability. */
+export async function saveAnnualCalendar(
+  calendar: ParsedAnnualCalendar,
+): Promise<void> {
+  const errors: string[] = [];
+
+  try {
+    await saveAnnualCalendarSqlite(calendar);
+  } catch (err) {
+    errors.push(
+      err instanceof Error ? err.message : "SQLite calendar save failed",
+    );
+  }
+
+  try {
+    await saveAnnualCalendarToDrive(calendar);
+  } catch (err) {
+    errors.push(
+      err instanceof Error ? err.message : "Drive calendar save failed",
+    );
+  }
+
+  if (errors.length === 2) {
+    throw new Error(errors.join("; "));
+  }
+}
+
+export async function loadAnnualCalendarsConfig(): Promise<AnnualCalendarsConfig> {
+  const [fromDrive, fromSqlite] = await Promise.all([
+    loadAnnualCalendarsFromDrive().catch(() => ({} as AnnualCalendarsConfig)),
+    loadAnnualCalendarsSqlite().catch(() => ({} as AnnualCalendarsConfig)),
+  ]);
+
+  return mergeCalendarConfigs(fromDrive, fromSqlite);
+}
+
 export async function loadAnnualCalendar(
   year: number,
 ): Promise<ParsedAnnualCalendar | null> {
-  const db = await getDb();
-  const result = await db.execute({
-    sql: "SELECT year, data FROM annual_calendars WHERE year = ?",
-    args: [year],
-  });
-
-  const row = result.rows[0];
-  if (!row) return null;
-
-  return rowToCalendar({
-    year: Number(row.year),
-    data: String(row.data),
-  });
+  const config = await loadAnnualCalendarsConfig();
+  return config[String(year)] ?? null;
 }

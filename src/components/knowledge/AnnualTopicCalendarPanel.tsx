@@ -60,6 +60,35 @@ export function AnnualTopicCalendarPanel() {
     setStore(loadAnnualCalendars());
   }, []);
 
+  useEffect(() => {
+    if (!session?.user) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/annual-calendar");
+        const data = (await res.json()) as {
+          annualCalendars?: Record<string, ParsedAnnualCalendar>;
+          years?: number[];
+        };
+        if (cancelled || !data.annualCalendars) return;
+
+        const cal = data.annualCalendars[String(selectedYear)];
+        if (cal?.months?.length) {
+          setParsedCalendar(cal);
+        } else {
+          setParsedCalendar(null);
+        }
+      } catch {
+        // local-only mode
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user, selectedYear]);
+
   const years = useMemo(
     () =>
       yearRange(
@@ -231,8 +260,8 @@ export function AnnualTopicCalendarPanel() {
           <div className="space-y-3">
             <p className="text-xs text-[var(--text-muted)]">
               Upload the yearly topic calendar (image or PDF). Image calendars are
-              OCR&apos;d with Claude and saved to shared Drive for Slack topic
-              research. Local preview stays in this browser.
+              OCR&apos;d with Claude and saved for Slack /newbox and topic research.
+              Local preview image stays in this browser.
             </p>
             <input
               ref={fileInputRef}
@@ -278,7 +307,7 @@ export function AnnualTopicCalendarPanel() {
                 }
                 className="w-full rounded-xl border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-50"
               >
-                {parsing ? "Parsing calendar…" : "Parse & sync to Drive"}
+                {parsing ? "Parsing calendar…" : "Parse & save topics"}
               </button>
             )}
             {parsedCalendar && (

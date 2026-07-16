@@ -126,10 +126,10 @@ export function buildMonthDropdownOptions(
   });
 }
 
-/** True when Drive has at least one month with topics for this year */
-export function hasAnnualCalendarTopics(
+/** True when a calendar year has at least one month with topics */
+export function calendarYearHasTopics(
   calendars: AnnualCalendarsConfig | undefined,
-  year = new Date().getFullYear(),
+  year: number,
   boxType?: "mini-box" | "ciab",
 ): boolean {
   const entry = calendars?.[String(year)];
@@ -142,6 +142,32 @@ export function hasAnnualCalendarTopics(
         : m.miniBoxTopics?.[0]?.trim() || m.ciabTopic?.trim();
     return Boolean(topic);
   });
+}
+
+/** Prefer current year; fall back to the newest stored calendar with topics. */
+export function resolveCalendarYear(
+  calendars: AnnualCalendarsConfig | undefined,
+  preferred = new Date().getFullYear(),
+): number {
+  if (calendarYearHasTopics(calendars, preferred)) return preferred;
+
+  const years = Object.keys(calendars || {})
+    .map(Number)
+    .filter((y) => calendarYearHasTopics(calendars, y))
+    .sort((a, b) => b - a);
+
+  return years[0] ?? preferred;
+}
+
+/** True when any stored calendar has topics for this year (or the latest stored year). */
+export function hasAnnualCalendarTopics(
+  calendars: AnnualCalendarsConfig | undefined,
+  year = new Date().getFullYear(),
+  boxType?: "mini-box" | "ciab",
+): boolean {
+  if (!calendars || !Object.keys(calendars).length) return false;
+  const resolvedYear = resolveCalendarYear(calendars, year);
+  return calendarYearHasTopics(calendars, resolvedYear, boxType);
 }
 
 export function currentMonthCiabTopic(

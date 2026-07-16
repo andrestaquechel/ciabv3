@@ -7,6 +7,7 @@ import {
   parseMonthInput,
   formatCalendarSummary,
   currentMonthCiabTopic,
+  resolveCalendarYear,
   type AnnualCalendarsConfig,
 } from "@/lib/annual-calendar-types";
 import {
@@ -366,7 +367,8 @@ export async function buildNewboxWizardResponse({
   };
 }): Promise<NewboxWizardResponse> {
   const workflowId = randomUUID();
-  const year = new Date().getFullYear();
+  const calendars = await loadAnnualCalendars();
+  const year = resolveCalendarYear(calendars);
   const workflow: SlackWorkflowRecord = {
     id: workflowId,
     boxType: parsed?.boxType || "mini-box",
@@ -528,7 +530,7 @@ export async function handleNewboxTypeSelect({
   await persist(workflow);
 
   const calendars = await loadAnnualCalendars();
-  const year = new Date().getFullYear();
+  const year = resolveCalendarYear(calendars, workflow.targetYear);
 
   if (!hasAnnualCalendarTopics(calendars, year, boxType)) {
     await promptCalendarUpload({ workflow, channel, threadTs });
