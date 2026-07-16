@@ -109,6 +109,20 @@ function withEmphasis(rPr: string, italic: boolean, bold: boolean): string {
   return rPr.replace(/^<a:rPr\b([^>]*?)(\/?)>/, (_m, attrs, slash) => `<a:rPr${attrs}${add}${slash}>`);
 }
 
+/** Force a run's <a:rPr> to bold, replacing any existing b="0"/b="1". */
+function withBold(rPr: string): string {
+  const s = rPr.replace(/\sb="[01]"/g, "");
+  return s.replace(/^<a:rPr\b([^>]*?)(\/?)>/, (_m, attrs, slash) => `<a:rPr${attrs} b="1"${slash}>`);
+}
+
+/** Strip inline markdown bold markers (**text** / __text__) so they don't render
+ *  as literal asterisks/underscores — the whole body is force-bolded anyway. */
+function stripInlineEmphasisMarkers(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1");
+}
+
 function plainRun(text: string, rPr: string): string {
   return `<a:r>${rPr}<a:t>${escapeXml(text)}</a:t></a:r>`;
 }
@@ -143,19 +157,24 @@ function buildParagraphRuns(line: string, rPr: string, linkSink: { url: string }
   return out || plainRun(line, rPr);
 }
 
-/** Rebuild a single paragraph, keeping its pPr and first-run styling. */
+/** Rebuild a single paragraph, keeping its pPr and first-run styling. When
+ *  forceBold is set (body content slides), every run is bolded and stray inline
+ *  markdown bold markers are stripped so no literal ** / __ show. */
 function setParagraphText(
   paragraph: string,
   line: string,
   fallbackRPr: string,
   linkSink: { url: string }[] = [],
+  forceBold = false,
 ): string {
   const pPr = paragraphProps(paragraph);
   if (line.trim() === "") {
     return `<a:p>${pPr}${endParaProps(paragraph)}</a:p>`;
   }
-  const { text, italic, bold } = parseEmphasis(line);
-  const rPr = withEmphasis(firstRunProps(paragraph) || fallbackRPr, italic, bold);
+  const parsed = parseEmphasis(line);
+  const text = forceBold ? stripInlineEmphasisMarkers(parsed.text) : parsed.text;
+  let rPr = withEmphasis(firstRunProps(paragraph) || fallbackRPr, parsed.italic, parsed.bold);
+  if (forceBold) rPr = withBold(rPr);
   return `<a:p>${pPr}${buildParagraphRuns(text, rPr, linkSink)}</a:p>`;
 }
 
@@ -179,6 +198,7 @@ function replaceShapeText(
   newText: string,
   slideNum?: number,
   linkSink: { url: string }[] = [],
+  forceBold = false,
 ): string {
   const shapes = getTextShapes(slideXml);
   const shape = shapes[shapeIndex];
@@ -221,7 +241,7 @@ function replaceShapeText(
       contentParagraphs[contentParagraphs.length - 1] ??
       primaryTemplate;
     ci++;
-    rebuilt.push(setParagraphText(template, raw, shapeRPr, linkSink));
+    rebuilt.push(setParagraphText(template, raw, shapeRPr, linkSink, forceBold));
   }
   if (!rebuilt.length) rebuilt.push(makeSpacer());
 
@@ -445,6 +465,39 @@ async function applyHyperlinkRels(
   return xml;
 }
 
+/** Point the "Via Giphy" caption at the GIF now shown above it. The template
+ *  ships this caption pre-linked (an <a:hlinkClick r:id="…">) to whatever GIF it
+ *  originally held, so after we swap in a new GIF we repoint that existing
+ *  relationship to the new GIF's URL — matching the archive house style where
+ *  "Via Giphy" links to the exact GIF displayed. */
+async function relinkGiphyCaption(
+  zip: JSZip,
+  slideNum: number,
+  captionIdx: number,
+  gifUrl: string,
+): Promise<void> {
+  const slidePath = `ppt/slides/slide${slideNum}.xml`;
+  const slideFile = zip.file(slidePath);
+  if (!slideFile) return;
+  const xml = await slideFile.async("string");
+  const caption = getTextShapes(xml)[captionIdx];
+  if (!caption) {
+    warnPptx(`slide ${slideNum}: caption shape ${captionIdx} not found — "Via Giphy" link not updated.`);
+    return;
+  }
+  const rid = caption.match(/<a:hlinkClick[^>]*r:id="(rId\d+)"/)?.[1];
+  if (!rid) return; // template caption carries no hyperlink to repoint
+
+  const relsPath = `ppt/slides/_rels/slide${slideNum}.xml.rels`;
+  const relsFile = zip.file(relsPath);
+  if (!relsFile) return;
+  let rels = await relsFile.async("string");
+  const relRe = new RegExp(`(<Relationship Id="${rid}"[^>]*Target=")[^"]*(")`);
+  if (!relRe.test(rels)) return;
+  rels = rels.replace(relRe, (_m, pre, post) => `${pre}${escapeXml(gifUrl)}${post}`);
+  zip.file(relsPath, rels);
+}
+
 export async function buildMiniBoxFromTemplate(
   doc: MiniBoxDocument,
 ): Promise<Buffer> {
@@ -470,7 +523,10 @@ export async function buildMiniBoxFromTemplate(
     let xml = await slideFile.async("string");
     const slideLinks: { url: string }[] = [];
     for (const edit of slideEdits) {
-      xml = replaceShapeText(xml, edit.shapeIndex, edit.value, edit.slide, slideLinks);
+      // Bold all body content (slides 2/4/5/7); leave the cover title (slide 1)
+      // to its own accent styling.
+      const forceBold = edit.slide !== 1;
+      xml = replaceShapeText(xml, edit.shapeIndex, edit.value, edit.slide, slideLinks, forceBold);
     }
     if (slideLinks.length) xml = await applyHyperlinkRels(zip, slideNum, xml, slideLinks);
     zip.file(slidePath, xml);
@@ -524,6 +580,12 @@ export async function buildMiniBoxFromTemplate(
     const buf = await gifToBuffer(gif);
     if (buf) {
       zip.file(mediaPath, buf);
+      // Repoint the "Via Giphy" caption link to the GIF we just injected.
+      const gifUrl = gif.url || gif.previewUrl;
+      const captionIdx = GIF_LAYOUT[slideNum]?.captionIdx;
+      if (gifUrl && captionIdx != null) {
+        await relinkGiphyCaption(zip, slideNum, captionIdx, gifUrl);
+      }
     } else {
       warnPptx(`slide ${slideNum} GIF could not be loaded — kept template default.`);
     }

@@ -30,7 +30,7 @@ THE 7-SLIDE MINI BOX (you author the content for slides 2, 4, 5, 7):
 7. Chat Message — an interactive A/B/C/D scenario
 
 FIXED CONVENTIONS (follow exactly):
-- topic is a CONCISE, high-signal box title — a short topic label of roughly 2–5 words, matching the archive examples' style and length (e.g. "Shadow AI", "Internet of Things (IoT)", "MFA Fatigue", "Deepfake Payment Fraud"). Reframe the long news headline you were given into this short label; do NOT reuse the full headline. A short colon subtitle is allowed only if the whole thing stays brief.
+- topic is a CONCISE, high-signal box title — a short topic LABEL of 2–5 words (hard limit: 5 words / ~40 characters), matching the archive's style and length. Real archive titles: "Shadow AI", "Update Before You Browse", "Invisible Threats on Your Mobile", "Internet of Things (IoT)", "Lessons from Anthropic's Leaks", "Fake CAPTCHA Pop-Ups". Reframe the long news headline into this short label — do NOT reuse the headline or write a sentence. It must NOT be a full clause with verbs describing what happened (bad: "Fake CAPTCHA pop-ups are tricking people into installing malware"; good: "Fake CAPTCHA Pop-Ups"). No colon subtitle unless the whole thing still fits in 5 words.
 - welcome.closing is ALWAYS "The Living Security Team" (admin note; never {{ SIGNATURE }} here).
 - welcome.contents opens with the literal line "In this topical mini box, you'll find:" then briefly describes the one-pager and the chat message as the two included assets.
 - onePager.greeting is "Hi, Team!" or "Hey, Team!".
@@ -53,7 +53,7 @@ Past Mini Box examples from our archive (match voice, structure, and formatting 
 
 Write the COMPLETE Mini Box content as JSON with exactly this shape. Fill every field fully — no placeholders, no empty strings:
 {
-  "topic": "a concise, high-signal box title — 2-5 words, topic-label style like 'Shadow AI' or 'Internet of Things (IoT)', NOT the long news headline",
+  "topic": "a concise box title — 2-5 words max (like 'Shadow AI', 'Fake CAPTCHA Pop-Ups', 'Update Before You Browse'), a short LABEL not a sentence, NEVER the long news headline",
   "angle": "one-sentence strategic hook for this box",
   "audience": "who this is for (usually: all employees)",
   "welcome": {

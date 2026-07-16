@@ -7,6 +7,7 @@ import {
 import { pickMiniBoxGifs } from "@/lib/giphy-search";
 import { generateFullMiniBox, generateOutline } from "@/lib/mini-box-generate";
 import { generateTopicCandidates } from "@/lib/mini-box-topic-research";
+import { isStructuredOutline } from "@/lib/mini-box-prompts";
 import type { TopicCandidate } from "@/lib/mini-box-topic-prompts";
 import {
   loadSlackWorkflowFromDrive,
@@ -490,6 +491,27 @@ export async function generateAndPostOutline({
   });
 }
 
+/**
+ * The cover/box title must be a short topic label like the archive ("Shadow AI",
+ * "Update Before You Browse", "Internet of Things (IoT)"), NOT the long news
+ * headline. Prefer the concise `topic` the model produced in the outline; fall
+ * back to trimming the selected hook down to a label.
+ */
+function conciseBoxTitle(workflow: SlackWorkflowRecord): string {
+  const outline = workflow.outline;
+  const fromOutline = isStructuredOutline(outline) ? (outline.topic || "").trim() : "";
+  const hook = workflow.selectedTopic?.topicHook?.trim() || "";
+  let title = (fromOutline || hook || "Mini Box").replace(/\s+/g, " ").replace(/[.\s]+$/, "");
+  // Safety net for an over-long title: keep the label before a dash/colon, else
+  // the first few words.
+  if (title.split(" ").length > 6) {
+    const head = title.split(/\s*[—–:]\s*/)[0].trim();
+    const headWords = head.split(" ").length;
+    title = headWords >= 2 && headWords <= 6 ? head : title.split(" ").slice(0, 5).join(" ");
+  }
+  return title;
+}
+
 export async function generateAndPostFullBox({
   workflow,
   channel,
@@ -506,20 +528,23 @@ export async function generateAndPostFullBox({
     throw new Error("Missing topic or outline.");
   }
 
-  const topic = candidate.topicHook;
+  // Descriptive hook drives generation + GIF search; the concise title is the
+  // cover/box name.
+  const hook = candidate.topicHook;
+  const boxTitle = conciseBoxTitle(workflow);
   await slackPostMessage({
     channel,
     threadTs,
-    text: `Generating full Mini Box for *${topic}* (content + GIFs)…`,
+    text: `Generating full Mini Box for *${boxTitle}* (content + GIFs)…`,
   });
 
   const full = await generateFullMiniBox({
-    topic,
+    topic: hook,
     notes: topicNotes(candidate),
     outline: workflow.outline,
   });
 
-  const gifs = await pickMiniBoxGifs(topic, {
+  const gifs = await pickMiniBoxGifs(hook, {
     welcome: full.sections.welcome.intro,
     onePager: `${full.sections.onePager.subjectLine} ${full.sections.onePager.bodyPart1}`,
     chat: full.sections.chat.message,
@@ -529,7 +554,7 @@ export async function generateAndPostFullBox({
   try {
     await saveGeneratedDraftToDrive({
       id: draftId,
-      topic,
+      topic: boxTitle,
       createdAt: new Date().toISOString(),
       createdBy: userId || workflow.createdBy,
       source: full.source,
@@ -547,14 +572,14 @@ export async function generateAndPostFullBox({
 
   const openUrl = workflow.draftId
     ? `${appBaseUrl()}/builder/new?draft=${workflow.draftId}`
-    : `${appBaseUrl()}/builder/new?topic=${encodeURIComponent(topic)}&autoGenerate=1`;
+    : `${appBaseUrl()}/builder/new?topic=${encodeURIComponent(boxTitle)}&autoGenerate=1`;
 
   const welcomePreview = full.sections.welcome.intro.slice(0, 280);
   await slackPostMessage({
     channel,
     threadTs,
-    text: `Full Mini Box ready: ${topic}`,
-    blocks: fullBoxReadyBlocks(topic, openUrl, welcomePreview),
+    text: `Full Mini Box ready: ${boxTitle}`,
+    blocks: fullBoxReadyBlocks(boxTitle, openUrl, welcomePreview),
   });
 
   if (full.note) {
