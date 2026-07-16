@@ -6,6 +6,7 @@ import {
 import { resolveTopicResearchModel } from "@/lib/claude-models";
 import { currentMonthCiabTopic } from "@/lib/annual-calendar-types";
 import { loadAppSettingsFromDrive } from "@/lib/box-studio-drive-data";
+import { loadAnnualCalendarsConfig } from "@/lib/db/annual-calendars";
 import {
   applyPromptTemplate,
   resolveTopicResearchPrompts,
@@ -230,8 +231,8 @@ export async function generateTopicCandidates({
   let monthlyCiabTopic = ciabOverride;
   if (!monthlyCiabTopic) {
     try {
-      const settings = await loadAppSettingsFromDrive();
-      monthlyCiabTopic = currentMonthCiabTopic(settings?.annualCalendars);
+      const calendars = await loadAnnualCalendarsConfig();
+      monthlyCiabTopic = currentMonthCiabTopic(calendars);
     } catch {
       monthlyCiabTopic = undefined;
     }

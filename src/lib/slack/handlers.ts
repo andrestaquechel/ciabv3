@@ -11,11 +11,13 @@ import type { TopicCandidate } from "@/lib/mini-box-topic-prompts";
 import {
   loadSlackWorkflowFromDrive,
   registerSlackWorkflowThread,
-  saveAnnualCalendarToDrive,
   saveGeneratedDraftToDrive,
   saveSlackWorkflowToDrive,
+  findSlackWorkflowIdByThread,
+  loadAppSettingsFromDrive,
   type SlackWorkflowRecord,
 } from "@/lib/box-studio-drive-data";
+import { saveAnnualCalendar, loadAnnualCalendarsConfig } from "@/lib/db/annual-calendars";
 import { imageMediaType, isSlackImageMime, slackDownloadFile, slackPostMessage } from "@/lib/slack/api";
 import {
   calendarParsedBlocks,
@@ -33,10 +35,6 @@ import {
 } from "@/lib/slack/newbox-handlers";
 import { startCsmReview } from "@/lib/slack/csm-review";
 import { applyCsmFeedbackAndFinalize } from "@/lib/slack/morgan-review";
-import {
-  findSlackWorkflowIdByThread,
-  loadAppSettingsFromDrive,
-} from "@/lib/box-studio-drive-data";
 import { monthCiabTopic, monthCalendarLabel, MONTH_LABELS } from "@/lib/annual-calendar-types";
 import { resolveSlackReview } from "@/lib/slack/review-settings";
 
@@ -190,7 +188,7 @@ export async function handleCalendarImage({
     sourceFileName: file.name,
   });
 
-  await saveAnnualCalendarToDrive(calendar);
+  await saveAnnualCalendar(calendar);
   const ciab = currentMonthCiabTopic({ [String(calendar.year)]: calendar });
   const summary = formatCalendarSummary(calendar);
 
@@ -287,8 +285,8 @@ export async function runTopicResearchForMonth({
 
   let monthlyCiabTopic: string | undefined;
   try {
-    const settings = await loadAppSettingsFromDrive();
-    monthlyCiabTopic = monthCiabTopic(settings?.annualCalendars, monthNumber, year);
+    const calendars = await loadAnnualCalendarsConfig();
+    monthlyCiabTopic = monthCiabTopic(calendars, monthNumber, year);
   } catch {
     monthlyCiabTopic = undefined;
   }
@@ -646,9 +644,9 @@ export async function handleBlockActions(payload: {
 
     let monthLabel = MONTH_LABELS[monthNumber - 1];
     try {
-      const settings = await loadAppSettingsFromDrive();
+      const calendars = await loadAnnualCalendarsConfig();
       monthLabel = monthCalendarLabel(
-        settings?.annualCalendars,
+        calendars,
         monthNumber,
         "mini-box",
       );

@@ -305,24 +305,6 @@ export async function loadSlackWorkflowFromDrive(
   return readJsonFile<SlackWorkflowRecord>(fileId);
 }
 
-export async function saveAnnualCalendarToDrive(
-  calendar: import("@/lib/annual-calendar-types").ParsedAnnualCalendar,
-): Promise<AppSettingsPayload> {
-  const existing = (await loadAppSettingsFromDrive()) ?? {};
-  const key = String(calendar.year);
-  const next: AppSettingsPayload = {
-    ...existing,
-    annualCalendars: {
-      ...existing.annualCalendars,
-      [key]: calendar,
-    },
-    updatedAt: new Date().toISOString(),
-  };
-  const dataFolderId = await getSharedDataFolderId();
-  await upsertJsonFile(dataFolderId, APP_SETTINGS_FILE, next);
-  return next;
-}
-
 export async function registerSlackWorkflowThread(
   channel: string,
   threadTs: string,

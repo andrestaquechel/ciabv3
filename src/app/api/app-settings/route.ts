@@ -5,6 +5,10 @@ import {
   saveAppSettingsToDrive,
   type AppSettingsPayload,
 } from "@/lib/box-studio-drive-data";
+import {
+  loadAnnualCalendarsConfig,
+  saveAnnualCalendar,
+} from "@/lib/db/annual-calendars";
 import { isValidClaudeModel, resolveClaudeModel } from "@/lib/claude-models";
 import { resolveSlackReview } from "@/lib/slack/review-settings";
 
@@ -24,7 +28,8 @@ export async function GET() {
       process.env.ANTHROPIC_MODEL,
     );
     const slackReview = resolveSlackReview(settings.slackReview);
-    return NextResponse.json({ ...settings, claudeModel, slackReview });
+    const annualCalendars = await loadAnnualCalendarsConfig();
+    return NextResponse.json({ ...settings, claudeModel, slackReview, annualCalendars });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to load app settings.";
@@ -48,6 +53,13 @@ export async function PUT(request: Request) {
     }
 
     const existing = (await loadAppSettingsFromDrive()) ?? {};
+
+    if (body.annualCalendars) {
+      for (const calendar of Object.values(body.annualCalendars)) {
+        await saveAnnualCalendar(calendar);
+      }
+    }
+
     const merged: AppSettingsPayload = {
       ...existing,
       ...body,
@@ -63,10 +75,6 @@ export async function PUT(request: Request) {
         ...existing.topicResearchPrompts,
         ...body.topicResearchPrompts,
       },
-      annualCalendars: {
-        ...existing.annualCalendars,
-        ...body.annualCalendars,
-      },
       slackReview: {
         ...existing.slackReview,
         ...body.slackReview,
@@ -76,6 +84,7 @@ export async function PUT(request: Request) {
         ...body.slackActiveThreads,
       },
     };
+    delete merged.annualCalendars;
 
     const saved = await saveAppSettingsToDrive(
       merged,
@@ -83,6 +92,7 @@ export async function PUT(request: Request) {
     );
     return NextResponse.json({
       ...saved,
+      annualCalendars: await loadAnnualCalendarsConfig(),
       claudeModel: resolveClaudeModel(
         saved.claudeModel,
         process.env.ANTHROPIC_MODEL,

@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { parseAnnualCalendarImage } from "@/lib/annual-calendar-ocr";
 import { currentMonthCiabTopic, formatCalendarSummary } from "@/lib/annual-calendar-types";
-import { saveAnnualCalendarToDrive } from "@/lib/box-studio-drive-data";
+import { saveAnnualCalendar } from "@/lib/db/annual-calendars";
 
 export async function POST(request: Request) {
   const session = await auth();
-  if (!session?.accessToken) {
+  if (!session?.user) {
     return NextResponse.json(
-      { error: "Connect Google to save parsed calendar." },
+      { error: "Sign in to save parsed calendar." },
       { status: 401 },
     );
   }
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
       calendar.year = body.year;
     }
 
-    await saveAnnualCalendarToDrive(calendar);
+    await saveAnnualCalendar(calendar);
 
     const ciab = currentMonthCiabTopic({ [String(calendar.year)]: calendar });
 

@@ -12,12 +12,15 @@ import {
 import {
   loadAppSettingsFromDrive,
   registerSlackWorkflowThread,
-  saveAnnualCalendarToDrive,
   saveSlackWorkflowToDrive,
   loadSlackWorkflowFromDrive,
   findSlackWorkflowIdByThread,
   type SlackWorkflowRecord,
 } from "@/lib/box-studio-drive-data";
+import {
+  loadAnnualCalendarsConfig,
+  saveAnnualCalendar,
+} from "@/lib/db/annual-calendars";
 import {
   parseAnnualCalendarImage,
   parseAnnualCalendarText,
@@ -54,8 +57,7 @@ async function persistNewWorkflow(
 
 async function loadAnnualCalendars() {
   try {
-    const settings = await loadAppSettingsFromDrive();
-    return settings?.annualCalendars;
+    return await loadAnnualCalendarsConfig();
   } catch {
     return undefined;
   }
@@ -115,7 +117,7 @@ export async function resumeNewboxAfterCalendar({
   threadTs: string;
   calendar: import("@/lib/annual-calendar-types").ParsedAnnualCalendar;
 }) {
-  await saveAnnualCalendarToDrive(calendar);
+  await saveAnnualCalendar(calendar);
 
   const workflowId = await findSlackWorkflowIdByThread(channel, threadTs);
   if (!workflowId) {
@@ -466,9 +468,9 @@ export async function handleNewboxMonthSelect({
     monthCalendarLabel(calendars, monthNumber, workflow.boxType, year);
 
   if (workflow.boxType === "ciab") {
-    const settings = await loadAppSettingsFromDrive();
-    const ciabTopic = monthCiabTopic(settings?.annualCalendars, monthNumber, year);
-    const miniTopics = monthMiniBoxTopics(settings?.annualCalendars, monthNumber, year);
+    const calendars = await loadAnnualCalendarsConfig();
+    const ciabTopic = monthCiabTopic(calendars, monthNumber, year);
+    const miniTopics = monthMiniBoxTopics(calendars, monthNumber, year);
     workflow.monthlyCiabTopic = ciabTopic;
     workflow.status = "topic_selection";
     await persist(workflow);
