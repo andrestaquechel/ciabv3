@@ -519,7 +519,11 @@ export async function generateAndPostFullBox({
     outline: workflow.outline,
   });
 
-  const gifs = await pickMiniBoxGifs(topic);
+  const gifs = await pickMiniBoxGifs(topic, {
+    welcome: full.sections.welcome.intro,
+    onePager: `${full.sections.onePager.subjectLine} ${full.sections.onePager.bodyPart1}`,
+    chat: full.sections.chat.message,
+  });
   const draftId = randomUUID();
 
   try {
