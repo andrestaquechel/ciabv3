@@ -6,6 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Deploy & Git
 
+- **"Push" / "deploy" / "commit" = production.** When Andres says push, deploy, or commit, commit the current work and push it straight to `main` (which auto-deploys to production). Do not leave it on a feature branch as a preview.
 - **GitHub repo:** https://github.com/andrestaquechel/ciabv3 — always push to `main` on this repo.
 - **Production URL:** https://ciabv2-gilt.vercel.app (Vercel project `ciabv2`, Git-linked to `andrestaquechel/ciabv3`).
 - **Deploys:** Vercel auto-deploys on push to `main`. GitHub Actions runs `npm run build` only (no Vercel token workflow).
