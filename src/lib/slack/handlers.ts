@@ -238,8 +238,11 @@ export async function runTopicResearch({
     ),
   });
 
-  if (result.note) {
-    await slackPostMessage({ channel, threadTs, text: result.note });
+  if (result.note || result.model) {
+    const parts: string[] = [];
+    if (result.model) parts.push(`Research model: \`${result.model}\``);
+    if (result.note) parts.push(result.note);
+    await slackPostMessage({ channel, threadTs, text: parts.join("\n") });
   }
 }
 
@@ -313,8 +316,11 @@ export async function runTopicResearchForMonth({
     ),
   });
 
-  if (result.note) {
-    await slackPostMessage({ channel, threadTs, text: result.note });
+  if (result.note || result.model) {
+    const parts: string[] = [];
+    if (result.model) parts.push(`Research model: \`${result.model}\``);
+    if (result.note) parts.push(result.note);
+    await slackPostMessage({ channel, threadTs, text: parts.join("\n") });
   }
 }
 
