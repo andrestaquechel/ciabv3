@@ -126,6 +126,24 @@ export function buildMonthDropdownOptions(
   });
 }
 
+/** True when Drive has at least one month with topics for this year */
+export function hasAnnualCalendarTopics(
+  calendars: AnnualCalendarsConfig | undefined,
+  year = new Date().getFullYear(),
+  boxType?: "mini-box" | "ciab",
+): boolean {
+  const entry = calendars?.[String(year)];
+  if (!entry?.months?.length) return false;
+
+  return entry.months.some((m) => {
+    const topic =
+      boxType === "ciab"
+        ? m.ciabTopic?.trim()
+        : m.miniBoxTopics?.[0]?.trim() || m.ciabTopic?.trim();
+    return Boolean(topic);
+  });
+}
+
 export function currentMonthCiabTopic(
   calendars: AnnualCalendarsConfig | undefined,
   date = new Date(),

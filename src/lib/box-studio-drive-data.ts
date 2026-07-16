@@ -255,6 +255,7 @@ export type SlackWorkflowRecord = {
   boxType: "mini-box" | "ciab";
   status:
     | "newbox_setup"
+    | "awaiting_calendar"
     | "topic_selection"
     | "outline"
     | "full_draft"

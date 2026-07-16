@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { assertSlackSignature } from "@/lib/slack/verify";
 import { buildNewboxWizardResponse } from "@/lib/slack/newbox-handlers";
 import { parseMonthInput } from "@/lib/annual-calendar-types";
+import { registerSlackWorkflowThread } from "@/lib/box-studio-drive-data";
+import { slackPostMessage } from "@/lib/slack/api";
 
 export const runtime = "nodejs";
 
@@ -57,6 +59,26 @@ export async function POST(request: Request) {
         month: month ? String(month.monthNumber) : monthArg || undefined,
       },
     });
+
+    // Post in-channel so we get a message ts for thread registration (calendar upload)
+    if (wizard.text === "Annual topic calendar needed") {
+      const posted = await slackPostMessage({
+        channel: payload.channel_id,
+        text: wizard.text,
+        blocks: wizard.blocks,
+      });
+      if (posted.ts) {
+        await registerSlackWorkflowThread(
+          payload.channel_id,
+          posted.ts,
+          wizard.workflowId,
+        );
+      }
+      return NextResponse.json({
+        response_type: "ephemeral",
+        text: "Posted calendar upload prompt in channel — reply in that thread with a photo or pasted list.",
+      });
+    }
 
     return NextResponse.json({
       response_type: "in_channel",

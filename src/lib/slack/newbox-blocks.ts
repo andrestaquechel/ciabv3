@@ -32,6 +32,39 @@ export function newboxTypeBlocks(workflowId: string) {
   ];
 }
 
+export function calendarUploadPromptBlocks(
+  workflowId: string,
+  boxType: "mini-box" | "ciab",
+) {
+  const label = boxType === "ciab" ? "CIAB" : "Mini Box";
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: [
+          `*${label}* — I don't have this year's *annual topic calendar* yet.`,
+          "",
+          "Please reply in this thread with either:",
+          "• 📷 *Photo* — attach a screenshot or photo of the calendar (PNG, JPG, HEIC, etc.)",
+          "• 📝 *List* — paste the month → topic list as text",
+          "",
+          "I'll read it, save it, and show the month picker with topics like *July - Emerging Threats*.",
+        ].join("\n"),
+      },
+    },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `_Waiting for calendar · workflow \`${workflowId.slice(0, 8)}…\`_`,
+        },
+      ],
+    },
+  ];
+}
+
 export function newboxMonthBlocks(
   workflowId: string,
   boxType: "mini-box" | "ciab",

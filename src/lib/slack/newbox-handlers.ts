@@ -1,18 +1,31 @@
 import { randomUUID } from "crypto";
 import {
+  hasAnnualCalendarTopics,
   monthCalendarLabel,
   monthCiabTopic,
   monthMiniBoxTopics,
   parseMonthInput,
+  formatCalendarSummary,
+  currentMonthCiabTopic,
+  type AnnualCalendarsConfig,
 } from "@/lib/annual-calendar-types";
 import {
   loadAppSettingsFromDrive,
   registerSlackWorkflowThread,
+  saveAnnualCalendarToDrive,
   saveSlackWorkflowToDrive,
+  loadSlackWorkflowFromDrive,
+  findSlackWorkflowIdByThread,
   type SlackWorkflowRecord,
 } from "@/lib/box-studio-drive-data";
-import { slackPostMessage } from "@/lib/slack/api";
 import {
+  parseAnnualCalendarImage,
+  parseAnnualCalendarText,
+} from "@/lib/annual-calendar-ocr";
+import { imageMediaType, isSlackImageMime, slackDownloadFile, slackPostMessage } from "@/lib/slack/api";
+import { calendarParsedBlocks } from "@/lib/slack/blocks";
+import {
+  calendarUploadPromptBlocks,
   ciabMonthReadyBlocks,
   newboxMonthBlocks,
   newboxTypeBlocks,
@@ -45,6 +58,193 @@ async function loadAnnualCalendars() {
     return settings?.annualCalendars;
   } catch {
     return undefined;
+  }
+}
+
+async function promptCalendarUpload({
+  workflow,
+  channel,
+  threadTs,
+}: {
+  workflow: SlackWorkflowRecord;
+  channel: string;
+  threadTs?: string;
+}) {
+  workflow.status = "awaiting_calendar";
+  await persist(workflow);
+  if (threadTs) {
+    await registerSlackWorkflowThread(channel, threadTs, workflow.id);
+  }
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: "Annual topic calendar needed — upload a photo or paste the list in this thread.",
+    blocks: calendarUploadPromptBlocks(workflow.id, workflow.boxType),
+  });
+}
+
+async function showMonthPicker({
+  workflowId,
+  boxType,
+  channel,
+  threadTs,
+  calendars,
+  year = new Date().getFullYear(),
+}: {
+  workflowId: string;
+  boxType: "mini-box" | "ciab";
+  channel: string;
+  threadTs?: string;
+  calendars?: AnnualCalendarsConfig;
+  year?: number;
+}) {
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: `${boxType === "ciab" ? "CIAB" : "Mini Box"} — pick a month`,
+    blocks: newboxMonthBlocks(workflowId, boxType, calendars, undefined, year),
+  });
+}
+
+export async function resumeNewboxAfterCalendar({
+  channel,
+  threadTs,
+  calendar,
+}: {
+  channel: string;
+  threadTs: string;
+  calendar: import("@/lib/annual-calendar-types").ParsedAnnualCalendar;
+}) {
+  await saveAnnualCalendarToDrive(calendar);
+
+  const workflowId = await findSlackWorkflowIdByThread(channel, threadTs);
+  if (!workflowId) {
+    const summary = formatCalendarSummary(calendar);
+    const ciab = currentMonthCiabTopic({ [String(calendar.year)]: calendar });
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `${calendar.year} topic calendar saved.`,
+      blocks: calendarParsedBlocks(calendar.year, summary, ciab),
+    });
+    return;
+  }
+
+  const workflow = await loadSlackWorkflowFromDrive(workflowId);
+  if (!workflow || workflow.status !== "awaiting_calendar") {
+    const summary = formatCalendarSummary(calendar);
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `${calendar.year} topic calendar saved.`,
+      blocks: calendarParsedBlocks(calendar.year, summary),
+    });
+    return;
+  }
+
+  workflow.status = "newbox_setup";
+  workflow.targetYear = calendar.year;
+  await persist(workflow);
+
+  const calendars: AnnualCalendarsConfig = {
+    [String(calendar.year)]: calendar,
+  };
+  const summary = formatCalendarSummary(calendar);
+  const monthBlocks = newboxMonthBlocks(
+    workflowId,
+    workflow.boxType,
+    calendars,
+    undefined,
+    calendar.year,
+  );
+
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: `${calendar.year} calendar saved — pick a month.`,
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*${calendar.year} topic calendar saved* ✅\n${summary.slice(0, 1200)}`,
+        },
+      },
+      ...monthBlocks.slice(1),
+    ],
+  });
+}
+
+export async function handleNewboxCalendarImage({
+  channel,
+  threadTs,
+  fileId,
+  workflow,
+}: {
+  channel: string;
+  threadTs: string;
+  fileId: string;
+  workflow: SlackWorkflowRecord;
+}) {
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: "Reading your topic calendar photo…",
+  });
+
+  const file = await slackDownloadFile(fileId);
+  if (!isSlackImageMime(file.mimeType)) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: "Please upload an *image* (PNG, JPG, screenshot, etc.) or paste the month/topic list as text in this thread.",
+    });
+    return;
+  }
+
+  try {
+    const calendar = await parseAnnualCalendarImage({
+      imageBase64: file.buffer.toString("base64"),
+      mediaType: imageMediaType(file.mimeType),
+      source: "slack",
+      sourceFileName: file.name,
+    });
+    await resumeNewboxAfterCalendar({ channel, threadTs, calendar });
+  } catch (err) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `Could not read that calendar: ${err instanceof Error ? err.message : "OCR failed"}. Try a clearer photo or paste the list as text.`,
+    });
+  }
+
+  void workflow;
+}
+
+export async function handleNewboxCalendarText({
+  channel,
+  threadTs,
+  text,
+}: {
+  channel: string;
+  threadTs: string;
+  text: string;
+}) {
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: "Parsing your topic calendar list…",
+  });
+
+  try {
+    const calendar = await parseAnnualCalendarText(text, "slack");
+    await resumeNewboxAfterCalendar({ channel, threadTs, calendar });
+  } catch (err) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `Could not parse that list: ${err instanceof Error ? err.message : "parse failed"}. Try a photo or format like \`January - Phishing\`.`,
+    });
   }
 }
 
@@ -136,6 +336,15 @@ export async function buildNewboxWizardResponse({
 
   if (parsed?.boxType) {
     const calendars = await loadAnnualCalendars();
+    if (!hasAnnualCalendarTopics(calendars, year, parsed.boxType)) {
+      workflow.status = "awaiting_calendar";
+      await persistNewWorkflow(workflow, channel, threadTs);
+      return {
+        workflowId,
+        text: "Annual topic calendar needed",
+        blocks: calendarUploadPromptBlocks(workflowId, parsed.boxType),
+      };
+    }
     return {
       workflowId,
       text: `New ${parsed.boxType === "ciab" ? "CIAB" : "Mini Box"} — select month`,
@@ -203,11 +412,20 @@ export async function handleNewboxTypeSelect({
   await persist(workflow);
 
   const calendars = await loadAnnualCalendars();
-  await slackPostMessage({
+  const year = new Date().getFullYear();
+
+  if (!hasAnnualCalendarTopics(calendars, year, boxType)) {
+    await promptCalendarUpload({ workflow, channel, threadTs });
+    return;
+  }
+
+  await showMonthPicker({
+    workflowId,
+    boxType,
     channel,
     threadTs,
-    text: `${boxType === "ciab" ? "CIAB" : "Mini Box"} selected — pick a month`,
-    blocks: newboxMonthBlocks(workflowId, boxType, calendars),
+    calendars,
+    year,
   });
 }
 

@@ -16,7 +16,7 @@ import {
   saveSlackWorkflowToDrive,
   type SlackWorkflowRecord,
 } from "@/lib/box-studio-drive-data";
-import { imageMediaType, slackDownloadFile, slackPostMessage } from "@/lib/slack/api";
+import { imageMediaType, isSlackImageMime, slackDownloadFile, slackPostMessage } from "@/lib/slack/api";
 import {
   calendarParsedBlocks,
   formatOutlineSlack,
@@ -26,6 +26,8 @@ import {
 } from "@/lib/slack/blocks";
 import { topicCandidatesTableBlocks } from "@/lib/slack/newbox-blocks";
 import {
+  handleNewboxCalendarImage,
+  handleNewboxCalendarText,
   handleNewboxMonthSelect,
   handleNewboxTypeSelect,
 } from "@/lib/slack/newbox-handlers";
@@ -97,10 +99,24 @@ export async function handleSlackEventPayload(payload: SlackEvent) {
   const text = event.text || "";
 
   const imageFile = event.files?.find((f) =>
-    (f.mimetype || "").startsWith("image/"),
+    isSlackImageMime(f.mimetype || ""),
   );
 
   if (imageFile) {
+    const workflowId = await findSlackWorkflowIdByThread(channel, threadTs);
+    if (workflowId) {
+      const workflow = await loadSlackWorkflowFromDrive(workflowId);
+      if (workflow?.status === "awaiting_calendar") {
+        await handleNewboxCalendarImage({
+          channel,
+          threadTs,
+          fileId: imageFile.id,
+          workflow,
+        });
+        return;
+      }
+    }
+
     await handleCalendarImage({
       channel,
       threadTs,
@@ -566,6 +582,15 @@ export async function handleThreadReply({
   text: string;
   userId?: string;
 }) {
+  const workflowId = await findSlackWorkflowIdByThread(channel, threadTs);
+  if (workflowId) {
+    const workflow = await loadSlackWorkflowFromDrive(workflowId);
+    if (workflow?.status === "awaiting_calendar" && text.trim()) {
+      await handleNewboxCalendarText({ channel, threadTs, text });
+      return;
+    }
+  }
+
   const normalized = text.toLowerCase().replace(/<@[^>]+>/g, "").trim();
   const isApplyCommand =
     /\b(apply csm|apply feedback|make those csm|make those changes|finalize)\b/.test(
@@ -573,7 +598,6 @@ export async function handleThreadReply({
     );
   if (!isApplyCommand) return;
 
-  const workflowId = await findSlackWorkflowIdByThread(channel, threadTs);
   if (!workflowId) return;
 
   const settings = await loadAppSettingsFromDrive();

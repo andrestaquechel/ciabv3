@@ -67,10 +67,18 @@ export async function slackDownloadFile(fileId: string): Promise<{
 export function imageMediaType(
   mime: string,
 ): "image/jpeg" | "image/png" | "image/gif" | "image/webp" {
-  if (mime.includes("jpeg") || mime.includes("jpg")) return "image/jpeg";
-  if (mime.includes("gif")) return "image/gif";
-  if (mime.includes("webp")) return "image/webp";
+  const lower = mime.toLowerCase();
+  if (lower.includes("jpeg") || lower.includes("jpg") || lower.includes("heic") || lower.includes("heif")) {
+    return "image/jpeg";
+  }
+  if (lower.includes("gif")) return "image/gif";
+  if (lower.includes("webp")) return "image/webp";
   return "image/png";
+}
+
+export function isSlackImageMime(mime: string): boolean {
+  const lower = mime.toLowerCase();
+  return lower.startsWith("image/") || lower.includes("heic") || lower.includes("heif");
 }
 
 export async function slackGetThreadReplies(channel: string, threadTs: string) {
