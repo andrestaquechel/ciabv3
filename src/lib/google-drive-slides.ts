@@ -15,6 +15,39 @@ export type UploadedSlides = {
   webViewLink: string;
 };
 
+/** A binary (non-object-mode) readable that emits the whole buffer as one
+ *  chunk. Readable.from([buffer]) defaults to objectMode, which can corrupt a
+ *  binary media upload; this streams raw bytes. */
+function bufferToStream(buf: Buffer): Readable {
+  const stream = new Readable();
+  stream.push(buf);
+  stream.push(null);
+  return stream;
+}
+
+/** Extract the most useful message from a Google/Gaxios API error. */
+function driveErrorDetail(err: unknown): string {
+  if (err && typeof err === "object") {
+    const e = err as {
+      message?: string;
+      code?: number | string;
+      errors?: Array<{ message?: string; reason?: string }>;
+      response?: { status?: number; data?: { error?: { message?: string } } };
+    };
+    const parts = [
+      e.message,
+      e.response?.data?.error?.message,
+      e.errors?.[0]?.message,
+      e.errors?.[0]?.reason,
+    ].filter((p): p is string => Boolean(p));
+    // De-dupe while preserving order.
+    const seen = new Set<string>();
+    const unique = parts.filter((p) => (seen.has(p) ? false : (seen.add(p), true)));
+    if (unique.length) return unique.join(" — ");
+  }
+  return String(err);
+}
+
 /** Find (or create) the "Mini Box Review Drafts" folder under Box Studio Data. */
 async function ensureReviewFolder(drive: DriveClient): Promise<string> {
   const parentId = await getSharedDataFolderId();
@@ -68,22 +101,28 @@ export async function uploadPptxAsGoogleSlides({
   const drive = await getDriveClient();
   const parentFolderId = await ensureReviewFolder(drive);
 
-  const created = await drive.files.create({
-    requestBody: {
-      name,
-      mimeType: SLIDES_MIME,
-      parents: [parentFolderId],
-    },
-    media: {
-      mimeType: PPTX_MIME,
-      // Wrap the buffer in an array so the whole thing streams as one chunk;
-      // Readable.from(buffer) would iterate it byte-by-byte and corrupt the
-      // multipart upload.
-      body: Readable.from([pptxBuffer]),
-    },
-    fields: "id, webViewLink",
-    supportsAllDrives: true,
-  });
+  let created;
+  try {
+    created = await drive.files.create({
+      requestBody: {
+        name,
+        mimeType: SLIDES_MIME,
+        parents: [parentFolderId],
+      },
+      media: {
+        mimeType: PPTX_MIME,
+        body: bufferToStream(pptxBuffer),
+      },
+      fields: "id, webViewLink",
+      supportsAllDrives: true,
+    });
+  } catch (err) {
+    // Include the byte size + Drive's real reason so the failure is diagnosable
+    // from the Slack message (e.g. an oversized-upload vs conversion error).
+    throw new Error(
+      `Drive upload/convert failed (${pptxBuffer.length} bytes): ${driveErrorDetail(err)}`,
+    );
+  }
 
   const fileId = created.data.id;
   if (!fileId) {
