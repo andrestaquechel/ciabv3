@@ -75,17 +75,30 @@ function fixDividerSlideTitleFormatting(slideXml: string): string {
     .replace(/<a:endParaRPr\/>/, DIVIDER_END_PARA_RPR);
 }
 
-/** Largest topic-title size (of a descending set) whose wrapped height fits the
- *  space above the table-of-contents, so a long cover title never spills into
- *  it. The 0.64 char-width factor errs toward more lines (the large display
- *  font runs wider than body text) so we shrink rather than overflow. */
-function fitCoverTopicSz(text: string, widthEMU: number, availEMU: number): number {
+/** Template cover geometry (EMU). Portrait US-Letter; slide height 10058400. */
+const COVER_SLIDE_H_EMU = 10058400;
+const COVER_TITLE_TOC_GAP = 200000; // breathing room between title and TOC
+const COVER_BOTTOM_MARGIN = 320000; // keep the TOC clear of the slide bottom
+const COVER_TITLE_DEFAULT_SZ = 2600; // house cover-title size (26pt)
+
+/** Rough wrapped height (EMU) of the cover title at a given point size. The 0.64
+ *  char-width factor errs toward more lines (the large display font runs wider
+ *  than body text) so we clear rather than overlap the TOC. */
+function coverTitleHeightEMU(text: string, sz: number, widthEMU: number): number {
   const len = [...(text || "")].length || 1;
+  const pt = sz / 100;
+  const cpl = Math.max(8, Math.floor(widthEMU / (0.64 * pt * 12700)));
+  const lines = Math.max(1, Math.ceil(len / cpl));
+  return Math.round(lines * 1.25 * pt * 12700);
+}
+
+/** Smallest safety size (of a descending set) whose wrapped title still fits the
+ *  space above the TOC's lowest allowed position — used only as a last resort for
+ *  pathologically long titles once the TOC has already been pushed all the way
+ *  down. Normal/concise titles keep their original size. */
+function fitCoverTopicSz(text: string, widthEMU: number, availEMU: number): number {
   for (const sz of [2600, 2400, 2200, 2000, 1800, 1600, 1400]) {
-    const pt = sz / 100;
-    const cpl = Math.max(8, Math.floor(widthEMU / (0.64 * pt * 12700)));
-    const lines = Math.max(1, Math.ceil(len / cpl));
-    if (lines * 1.25 * pt * 12700 <= availEMU) return sz;
+    if (coverTitleHeightEMU(text, sz, widthEMU) <= availEMU) return sz;
   }
   return 1400;
 }
@@ -94,37 +107,83 @@ function coverTopicRunPr(sz: number): string {
   return `<a:rPr lang="en" sz="${sz}">${FILL_ACCENT1}${FONT_INTER}</a:rPr>`;
 }
 
+function shapeOffY(el: string): number | null {
+  const m = el.match(/<a:off x="-?\d+" y="(-?\d+)"\/>/);
+  return m ? Number(m[1]) : null;
+}
+function setShapeOffY(el: string, y: number): string {
+  return el.replace(/<a:off x="(-?\d+)" y="-?\d+"\/>/, (_m, x) => `<a:off x="${x}" y="${y}"/>`);
+}
+
+/**
+ * Cover slide: keep the topic title at its original (large) size and, when a
+ * longer title needs the room, push the table-of-contents ("Welcome Message for
+ * Program Owners", "One-Pager", "Chat") DOWN to clear it instead of shrinking
+ * the title. Short/concise titles leave the TOC at its template position. Only a
+ * title so long it can't fit even with the TOC pushed to the slide bottom falls
+ * back to shrinking.
+ */
 function fixCoverSlide(slideXml: string): string {
   let xml = slideXml;
   const shapes = getTextShapes(xml);
+  if (!shapes[0]) return xml;
 
-  if (shapes[0]) {
-    let shape = shapes[0];
-    // Auto-fit the topic title so a long headline doesn't overlap the TOC below.
-    const topic = [...shape.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join("");
-    const titleOff = shape.match(/<a:off x="-?\d+" y="(-?\d+)"\/>/);
-    const titleExt = shape.match(/<a:ext cx="(\d+)" cy="\d+"\/>/);
-    const tocOff = shapes[1]?.match(/<a:off x="-?\d+" y="(-?\d+)"\/>/);
-    const titleTop = titleOff ? Number(titleOff[1]) : 4724325;
-    const tocTop = tocOff ? Number(tocOff[1]) : titleTop + 900925;
-    const width = titleExt ? Number(titleExt[1]) : 6149700;
-    const avail = Math.max(400000, tocTop - titleTop - 40000);
-    const sz = fitCoverTopicSz(topic, width, avail);
-    if (/\bsz="\d+"/.test(shape)) {
-      // Template run already carries a size (and accent styling) — just resize.
-      shape = shape.replace(/\bsz="\d+"/g, `sz="${sz}"`);
-    } else {
-      shape = shape
-        .replace(/<a:r><a:rPr lang="en"\/>/, `<a:r>${coverTopicRunPr(sz)}`)
-        .replace(/<a:endParaRPr\/>/, `<a:endParaRPr sz="${sz}"/>`);
-    }
-    xml = replaceTextShape(xml, 0, shape);
+  const titleShape = shapes[0];
+  const topic = [...titleShape.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)]
+    .map((m) => m[1])
+    .join("");
+  const titleTop = shapeOffY(titleShape) ?? 4724325;
+  const titleExt = titleShape.match(/<a:ext cx="(\d+)" cy="\d+"\/>/);
+  const width = titleExt ? Number(titleExt[1]) : 6149700;
+
+  // The title keeps whatever size the template run carries (26pt); we do not
+  // shrink to fit anymore.
+  const existingSz = titleShape.match(/\bsz="(\d+)"/);
+  let titleSz = existingSz ? Number(existingSz[1]) : COVER_TITLE_DEFAULT_SZ;
+
+  const tocShape = shapes[1];
+  const tocTemplateTop = tocShape ? shapeOffY(tocShape) ?? 5625250 : 5625250;
+  const tocExt = tocShape?.match(/<a:ext cx="\d+" cy="(\d+)"\/>/);
+  const tocCy = tocExt ? Number(tocExt[1]) : 1119900;
+  const tocMaxTop = COVER_SLIDE_H_EMU - COVER_BOTTOM_MARGIN - tocCy;
+
+  // Where does the full-size title actually end?
+  let titleBottom = titleTop + coverTitleHeightEMU(topic, titleSz, width);
+  let newTocTop = Math.max(tocTemplateTop, titleBottom + COVER_TITLE_TOC_GAP);
+
+  // Last resort: if even pushing the TOC to the bottom can't clear the title,
+  // shrink the title just enough to fit above the TOC's lowest position.
+  if (newTocTop > tocMaxTop) {
+    const avail = Math.max(400000, tocMaxTop - titleTop - COVER_TITLE_TOC_GAP);
+    titleSz = fitCoverTopicSz(topic, width, avail);
+    titleBottom = titleTop + coverTitleHeightEMU(topic, titleSz, width);
+    newTocTop = Math.min(
+      tocMaxTop,
+      Math.max(tocTemplateTop, titleBottom + COVER_TITLE_TOC_GAP),
+    );
   }
 
-  if (shapes[1]) {
-    let shape = shapes[1];
+  // Apply title size (only rewrites the run if we actually changed it or the
+  // template run lacked an explicit size / accent styling).
+  let newTitleShape = titleShape;
+  if (/\bsz="\d+"/.test(titleShape)) {
+    if (titleSz !== (existingSz ? Number(existingSz[1]) : titleSz)) {
+      newTitleShape = titleShape.replace(/\bsz="\d+"/g, `sz="${titleSz}"`);
+    }
+  } else {
+    newTitleShape = titleShape
+      .replace(/<a:r><a:rPr lang="en"\/>/, `<a:r>${coverTopicRunPr(titleSz)}`)
+      .replace(/<a:endParaRPr\/>/, `<a:endParaRPr sz="${titleSz}"/>`);
+  }
+  if (newTitleShape !== titleShape) {
+    xml = replaceTextShape(xml, 0, newTitleShape);
+  }
+
+  if (tocShape) {
+    let shape = tocShape;
     shape = shape.replace(/<a:rPr lang="en" u="sng"\/>/g, COVER_SUBTITLE_RUN_PR);
     shape = shape.replace(/<a:endParaRPr u="sng"\/>/g, `<a:endParaRPr sz="1800" u="sng"/>`);
+    if (newTocTop !== tocTemplateTop) shape = setShapeOffY(shape, newTocTop);
     xml = replaceTextShape(xml, 1, shape);
   }
 

@@ -151,16 +151,24 @@ export function topicCandidatesTableBlocks(
   if (monthLabel) headerParts.push(`(${monthLabel})`);
   if (monthlyCiabTopic) headerParts.push(`— CIAB theme: *${monthlyCiabTopic}*`);
 
-  const tableHeader = "```\n#  Topic hook                         Align  Source\n";
+  const coverageMark = (c: (typeof candidates)[number]) =>
+    c.priorCoverage === "duplicate"
+      ? "⛔"
+      : c.priorCoverage === "related"
+        ? "↑"
+        : "  ";
+
+  const tableHeader = "```\n#  Prior Topic hook                     Align  Source\n";
   const tableRows = candidates
     .map((c) => {
-      const hook = c.topicHook.slice(0, 34).padEnd(34);
+      const hook = c.topicHook.slice(0, 32).padEnd(32);
       const align = (c.alignsWithCiab || "?").slice(0, 5).padEnd(5);
       const src = (c.sourceName || "?").slice(0, 18);
-      return `${String(c.id).padEnd(2)} ${hook} ${align} ${src}`;
+      return `${String(c.id).padEnd(2)} ${coverageMark(c)}   ${hook} ${align} ${src}`;
     })
     .join("\n");
-  const tableFooter = "\n```";
+  const tableFooter =
+    "\n```\n_⛔ = repeats a Mini Box from the last 2 years (deprioritized) · ↑ = builds on a past topic (OK)_";
 
   const blocks: unknown[] = [
     {
@@ -173,6 +181,13 @@ export function topicCandidatesTableBlocks(
   ];
 
   for (const c of candidates) {
+    const coverageLine =
+      c.priorCoverage === "duplicate"
+        ? `⛔ *Repeats a past Mini Box* (${c.priorCoverageRef ?? "last 2 years"})${c.priorCoverageNote ? ` — ${c.priorCoverageNote}` : ""}`
+        : c.priorCoverage === "related"
+          ? `↑ *Builds on* ${c.priorCoverageRef ?? "a past Mini Box"}${c.priorCoverageNote ? ` — ${c.priorCoverageNote}` : ""}`
+          : null;
+
     blocks.push({
       type: "section",
       text: {
@@ -182,7 +197,10 @@ export function topicCandidatesTableBlocks(
           c.whatHappened,
           `*For employees:* ${c.endUserMeaning}`,
           `*CIAB:* ${c.alignsWithCiab} · *Source:* <${c.sourceLink}|${c.sourceName}>`,
-        ].join("\n"),
+          coverageLine,
+        ]
+          .filter(Boolean)
+          .join("\n"),
       },
     });
     blocks.push({

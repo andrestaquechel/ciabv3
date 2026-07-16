@@ -5,6 +5,7 @@ const DATA_FOLDER_NAME = "Box Studio Data";
 const META_FOLDER_NAME = ".box-studio";
 const APP_SETTINGS_FILE = "app-settings.json";
 const KNOWLEDGE_INDEX_FILE = "knowledge-index.json";
+const TOPIC_MEMORY_FILE = "minibox-topic-memory.json";
 const DRAFTS_FOLDER = "generated-drafts";
 const SLACK_WORKFLOWS_FOLDER = "slack-workflows";
 
@@ -213,6 +214,31 @@ export async function saveKnowledgeIndexToDrive(
 ): Promise<void> {
   const metaFolderId = await ensureArchiveMetaFolder(index.folderId);
   await upsertJsonFile(metaFolderId, KNOWLEDGE_INDEX_FILE, index);
+}
+
+/**
+ * Compact, self-updating "topic memory" for cross-referencing new Mini Box
+ * topics against the last ~2 years of published boxes. Stored alongside the
+ * full-text knowledge index in the archive folder's `.box-studio` meta folder,
+ * but kept deliberately small (one distilled record per box) so cross-reference
+ * reads never re-scrape Drive.
+ */
+export async function loadTopicMemoryFromDrive(
+  archiveFolderId: string,
+): Promise<import("@/lib/minibox-topic-memory").MiniBoxTopicMemory | null> {
+  const metaFolderId = await findArchiveMetaFolderId(archiveFolderId);
+  if (!metaFolderId) return null;
+  const fileId = await findChildByName(metaFolderId, TOPIC_MEMORY_FILE);
+  if (!fileId) return null;
+  return readJsonFile(fileId);
+}
+
+export async function saveTopicMemoryToDrive(
+  archiveFolderId: string,
+  memory: import("@/lib/minibox-topic-memory").MiniBoxTopicMemory,
+): Promise<void> {
+  const metaFolderId = await ensureArchiveMetaFolder(archiveFolderId);
+  await upsertJsonFile(metaFolderId, TOPIC_MEMORY_FILE, memory);
 }
 
 export type GeneratedBoxDraft = {

@@ -18,6 +18,11 @@ import {
   validateAllTopicCandidates,
   validateTopicCandidateUrls,
 } from "@/lib/topic-source-validation";
+import {
+  crossReferenceCandidates,
+  ensureTopicMemoryFilled,
+  loadTopicMemory,
+} from "@/lib/minibox-topic-memory";
 
 function mockCandidates(monthlyCiabTopic?: string): TopicCandidate[] {
   const base = monthlyCiabTopic || "security awareness";
@@ -219,10 +224,15 @@ export async function generateTopicCandidates({
   monthlyCiabTopic: ciabOverride,
   prompts: promptOverride,
   model,
+  backfillMemory = "incremental",
 }: {
   monthlyCiabTopic?: string;
   prompts?: TopicResearchPromptsConfig;
   model?: string;
+  /** How aggressively to auto-fill the topic memory before cross-referencing.
+   *  "full" (background jobs) fills the whole archive; "incremental" (sync
+   *  requests) tops up a small bounded batch; false skips. */
+  backfillMemory?: "full" | "incremental" | false;
 } = {}): Promise<
   TopicResearchResult & {
     source: "anthropic" | "mock";
@@ -281,11 +291,38 @@ export async function generateTopicCandidates({
   );
   candidates = validated;
 
+  // Cross-reference against the last ~2 years of Mini Boxes: annotate each
+  // candidate with prior-coverage and sink duplicates to the bottom. Best-effort
+  // — never block topic research if the memory is missing or the check fails.
+  let dedupeNote: string | undefined;
+  try {
+    // Auto-fill the topic memory from the archive (no buttons). Fully automatic
+    // and self-maintaining: this tops it up on every research run, and finalized
+    // boxes fold themselves in via the finalize hook.
+    if (backfillMemory) {
+      await ensureTopicMemoryFilled(backfillMemory, researchModel);
+    }
+    const memory = await loadTopicMemory();
+    if (memory.records.length) {
+      candidates = await crossReferenceCandidates(
+        candidates,
+        memory,
+        researchModel,
+      );
+      const dupes = candidates.filter((c) => c.priorCoverage === "duplicate").length;
+      if (dupes) {
+        dedupeNote = `${dupes} candidate${dupes > 1 ? "s" : ""} overlap a Mini Box from the last 2 years and were deprioritized.`;
+      }
+    }
+  } catch {
+    // topic memory is optional — proceed with the un-annotated candidates
+  }
+
   return {
     source: "anthropic",
     monthlyCiabTopic,
     candidates,
     model: researchModel,
-    note: urlNote,
+    note: [urlNote, dedupeNote].filter(Boolean).join(" ") || undefined,
   };
 }

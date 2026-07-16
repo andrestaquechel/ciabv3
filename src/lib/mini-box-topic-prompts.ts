@@ -11,6 +11,15 @@ export type TopicCandidate = {
   sourceQuality: string;
   secondarySourceName?: string;
   secondarySourceLink?: string;
+  /** Cross-reference vs. the last ~2 years of Mini Boxes (topic memory):
+   *  - "none": no prior box covered this
+   *  - "related": a prior box touched it but this builds on / advances it (OK)
+   *  - "duplicate": same content AND same examples as a prior box (avoid) */
+  priorCoverage?: "none" | "related" | "duplicate";
+  /** Which past box it echoes, e.g. "07.25 16 Billion Passwords". */
+  priorCoverageRef?: string;
+  /** One-line explanation of the overlap (or how it advances the prior box). */
+  priorCoverageNote?: string;
 };
 
 export type TopicResearchResult = {
@@ -46,15 +55,17 @@ AUDIENCE (write the topic framing for these people):
 SELECTION GUARDRAILS:
 - Prefer stories that connect to real, human-relevant risk (scams, phishing, passwords, deepfakes, account takeover) over deeply technical incidents.
 - Flag any scary/trending number that has been disputed or later walked back.
-- SOURCE-TIER RULE: The link I print must come from one of these tiers:
-    * Security trade press (BleepingComputer, Cybernews, CyberScoop, SecurityWeek, TechCrunch, Hackread)
-    * Major mainstream/business media (CNN, Forbes, Wired, Fortune, Fast Company, Inc., NYT, Fox, TechRepublic, PCMag)
-    * Government / regulator (FBI/IC3, FTC, FCC, CISA)
-    * Primary / company disclosure (the affected company's own statement)
-    * Named industry report (e.g. Verizon DBIR, CTIA)
-    * Well-known security tool (Have I Been Pwned)
-  Do NOT cite vendor marketing blogs or monthly "roundup" aggregators. Use those only to FIND a story, then trace it back to an original source above. Prefer the stat from the most authoritative source available.
-- COMPETITOR RULE: If the trending stat comes from a competitor's threat lab (e.g. KnowBe4), find the same figure at a neutral source before printing it, and don't cite the competitor.
+- SOURCE-TIER RULE: The link I print must come from one of these tiers. Rank preference top-to-bottom — reach for the highest tier that credibly covers the story:
+    * Government / regulator (STRONGLY PREFERRED — most authoritative): FBI/IC3, FTC (incl. consumer.ftc.gov alerts), FCC, CISA. Lead with these whenever the story has an official advisory.
+    * Primary / company disclosure: the affected company's own statement or investor-relations page (e.g. a breached company's own release).
+    * Named industry report: Verizon DBIR, CTIA, and comparable named annual reports.
+    * Major mainstream/business media: Forbes (esp. Davey Winder's security desk — a proven go-to), CNN, Wired, Fortune, Fast Company, Inc., NYT (incl. Wirecutter), The Hill, Fox, TechRepublic, PCMag.
+    * Security trade press: BleepingComputer, SecurityWeek, Cybernews, CyberScoop, TechCrunch, Hackread.
+    * Well-known security tool / platform guidance: Have I Been Pwned; official how-to guidance from Apple Support, Google/Android, or Microsoft when the lesson is a concrete user action.
+  PROVEN HOUSE SOURCES (these exact publishers have been used and trusted across the last 2 years of Mini Boxes — treat them as the default shortlist and favor them over unfamiliar outlets covering the same story): FBI/IC3, FTC, FCC, CISA, Forbes, CNN, Wired, Fortune, Fast Company, Inc., NYT/Wirecutter, The Hill, BleepingComputer, SecurityWeek, Cybernews, CyberScoop, TechCrunch, Hackread, PCMag, Verizon DBIR, CTIA, Have I Been Pwned, Apple Support, Android.com.
+  When two sources cover the same story, cite the more authoritative and more recognizable one, and pair a gov/primary source with a mainstream/trade one as the secondary link when possible.
+  Do NOT cite vendor marketing blogs, SEO "best of" listicles, or monthly "roundup" aggregators. Use those only to FIND a story, then trace it back to an original source above. Prefer the stat from the most authoritative source available.
+- COMPETITOR RULE: If the trending stat comes from a competitor's threat lab (e.g. KnowBe4, Proofpoint, Abnormal), find the same figure at a neutral source before printing it, and don't cite the competitor.
 
 This month's CIAB topic (for alignment check): {{monthlyCiabTopic}}
 

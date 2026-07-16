@@ -11,6 +11,7 @@ import {
   type SlackWorkflowRecord,
 } from "@/lib/box-studio-drive-data";
 import { pickMiniBoxGifs } from "@/lib/giphy-search";
+import { addGeneratedBoxToMemory } from "@/lib/minibox-topic-memory";
 import { draftToMiniBoxDocument } from "@/lib/slack/draft-document";
 import {
   slackGetThreadReplies,
@@ -109,6 +110,47 @@ Return JSON: { "sections": { "welcome": {...}, "onePager": {...}, "chat": {...} 
     filename: filename.replace(/\.pptx$/, " (Final).pptx"),
     initialComment: `✅ *Final draft* — ${doc.topic} (CSM feedback applied)`,
   });
+
+  // Self-update the rolling topic memory: fold this finished box in and evict
+  // anything now older than 2 years, so future topic research can cross-
+  // reference it. Best-effort — never block finalization on it.
+  try {
+    const s = revised.sections;
+    const contentText = [
+      s.welcome.intro,
+      s.welcome.contents,
+      s.welcome.closing,
+      s.onePager.subjectLine,
+      s.onePager.greeting,
+      s.onePager.bodyPart1,
+      s.onePager.callout,
+      s.onePager.bodyPart2,
+      s.chat.message,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const selected = workflow.selectedTopic;
+    const sources: { name?: string; url?: string }[] = [];
+    if (selected) {
+      sources.push({ name: selected.sourceName, url: selected.sourceLink });
+      if (selected.secondarySourceLink) {
+        sources.push({
+          name: selected.secondarySourceName,
+          url: selected.secondarySourceLink,
+        });
+      }
+    }
+    await addGeneratedBoxToMemory({
+      title: doc.title || doc.topic,
+      topic: doc.topic,
+      month: workflow.targetMonth,
+      year: workflow.targetYear,
+      contentText,
+      sources: sources.length ? sources : undefined,
+    });
+  } catch {
+    // topic memory is optional
+  }
 
   workflow.status = "morgan_review";
   workflow.updatedAt = new Date().toISOString();

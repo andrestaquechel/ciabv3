@@ -291,7 +291,7 @@ export async function runTopicResearch({
     text: "Researching 6 Mini Box topic candidates from recent news (this may take a minute)…",
   });
 
-  const result = await generateTopicCandidates();
+  const result = await generateTopicCandidates({ backfillMemory: "full" });
   const workflowId = randomUUID();
   const now = new Date().toISOString();
 
@@ -371,7 +371,7 @@ export async function runTopicResearchForMonth({
 
   let result;
   try {
-    result = await generateTopicCandidates({ monthlyCiabTopic });
+    result = await generateTopicCandidates({ monthlyCiabTopic, backfillMemory: "full" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Topic research failed.";
     await slackPostMessage({
