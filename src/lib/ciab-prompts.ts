@@ -1,0 +1,268 @@
+/**
+ * Prompt shapes + defaults for the CIAB "Main Box" builder.
+ *
+ * These encode the exact conventions observed across the last ~2 years of
+ * published Main Boxes (voice, structure, sourcing rigor, formatting) so a
+ * generated box reads like one of the archive examples. Everything is derived
+ * from real Living Security CIABs and the "Expectations & Process" doc.
+ */
+
+export type CiabConcept = {
+  id: string;
+  /** Concise campaign title, e.g. "Phone-Based Social Engineering". */
+  title: string;
+  /** One-line subtitle / framing, e.g. "How attackers reach past your inbox". */
+  subtitle: string;
+  /** 1-2 sentence strategic angle for stakeholders. */
+  angle: string;
+  /** What makes this fresh vs. prior boxes on the topic. */
+  whyFresh: string;
+  /** The four (or so) sub-topics this concept would cover across the weeks. */
+  weeklyFocus: string[];
+  recommended?: boolean;
+};
+
+export type CiabSource = {
+  name: string;
+  /** Publisher / organization, e.g. "Verizon DBIR", "FBI IC3", "UK ICO". */
+  publisher: string;
+  url: string;
+  /** Publication date or period, e.g. "May 2026" / "Q4 2025". */
+  date: string;
+  /** The specific statistic or claim this source backs. */
+  claim: string;
+  /** Tier + quality note, e.g. "Government (Excellent)". */
+  tier: string;
+};
+
+export type CiabOutlineSection = {
+  /** e.g. "🎯 Introduction: …" or "🧠 Section 1: Smishing — …". */
+  title: string;
+  /** 2-4 sentence prose description with cited stats. */
+  description: string;
+  keyTeachingPoints: string[];
+  /** The "🛡️ Safe Data Moment" / "🎯 Your Move" action for this section. */
+  safeDataMoment: string;
+};
+
+export type CiabArcRow = {
+  week: number;
+  topic: string;
+  focus: string;
+};
+
+/** The stakeholder outline — mirrors the archive outline docs 1:1. */
+export type CiabOutline = {
+  title: string;
+  subtitle: string;
+  bigIdea: string;
+  whyThisWhyNow: string[];
+  whatMakesThisFresh: string;
+  sources: CiabSource[];
+  sections: CiabOutlineSection[];
+  campaignArc: CiabArcRow[];
+  whoThisIsFor: string;
+  tagline: string;
+};
+
+export function isCiabOutline(
+  outline: CiabOutline | string | null | undefined,
+): outline is CiabOutline {
+  return Boolean(
+    outline &&
+      typeof outline === "object" &&
+      "bigIdea" in outline &&
+      "sections" in outline &&
+      Array.isArray((outline as CiabOutline).sections),
+  );
+}
+
+export function applyPromptTemplate(
+  template: string,
+  vars: Record<string, string>,
+): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? "");
+}
+
+/* ------------------------------------------------------------------ */
+/* Shared style rules (single source of truth across every CIAB prompt) */
+/* ------------------------------------------------------------------ */
+
+export const CIAB_STYLE_RULES = `LIVING SECURITY MAIN BOX STYLE RULES (follow exactly):
+- Voice: warm, plain-spoken, second person, professional but fun, ~8th-grade reading level. Empowering and non-accusatory — never shame the reader. Expand acronyms on first use.
+- NO em dashes anywhere. Use a period, comma, or "and" instead.
+- NO contractions in the blog or the emails (write "do not", "it is", "you are"). Contractions ARE allowed in chat messages, where the tone is more casual.
+- Global in scope. Do NOT lean on US-only references, laws, or agencies as the default; keep examples applicable to an international workforce.
+- Every asset is STANDALONE. Do NOT use sequential language across assets ("as we covered last week", "in our next email"). Each email, chat, and blog section must make sense on its own.
+- Cite sources INLINE by name, e.g. "According to the Verizon DBIR 2025, …". Never print a bare URL in body copy and never invent a statistic or a source. Use only the vetted sources provided.
+- Emojis: encouraged in chat messages and as section/callout anchors (🎯, 🛡️, 🧠, 📱). Keep body prose mostly clean.
+- Blog and each blog section carry a "🎯 Your Move:" action line. Chats end with a call for interaction (a poll, an emoji reaction, or a reply prompt).
+- Emails open with a greeting ("Hi, Everyone!" / "Hello Everyone," / "Hi, Team!") and END with a sign-off line ("Until next time,") followed by the literal token {{ SIGNATURE }} on its own line. Never replace {{ SIGNATURE }}.
+- The Welcome Message is for PROGRAM OWNERS (admins), opens with "Hello!", and closes with "Live Secure," then "The Living Security Team". It always invites owners to edit/customize the content.`;
+
+export const CIAB_SOURCING_RULES = `SOURCING RULES (be rigid — this is non-negotiable):
+- Use only reputable sources from roughly the LAST 6-9 MONTHS. Prefer the newest authoritative reporting.
+- Verify every statistic directly from the PRIMARY source's own site. Never pull a statistic through a competitor's blog even if it cites a credible primary source.
+- NEVER use a source that sells its own HRM, security-awareness, or cybersecurity-training product (e.g. KnowBe4, Proofpoint, Abnormal, Mimecast, Cofense, and the like). Flag any commercial conflict.
+- Source-tier preference, highest first: Government / regulator (FBI/IC3, FTC, FCC, CISA, UK ICO, ENISA, NCSC) → primary / company disclosure → named industry report (Verizon DBIR, Ponemon, Mandiant M-Trends, APWG, IBM Cost of a Data Breach) → major mainstream / business media (Forbes, CNN, Wired, Fortune, Reuters, The Guardian, BBC) → reputable security trade press (KrebsOnSecurity, BleepingComputer, SecurityWeek, CyberScoop, The Register).
+- Every source link MUST be a real URL you opened via web search in this session and that resolves to the cited article. Do not guess, shorten, or reconstruct URLs.`;
+
+/* ------------------------------------------------------------------ */
+/* 1. Concept options                                                  */
+/* ------------------------------------------------------------------ */
+
+export const CIAB_CONCEPT_SYSTEM = `You are a Living Security content strategist proposing focus options for a monthly Campaign in a Box (CIAB) — a 4-week security-awareness campaign for enterprise employees. You have a web_search tool: use it to ground each concept in what is actually happening right now. Return JSON only.
+
+${CIAB_SOURCING_RULES}`;
+
+export const CIAB_CONCEPT_USER = `The month's CIAB calendar topic is: {{topic}} ({{monthLabel}}).
+
+Past Main/Mini Boxes from our archive (avoid repeating angles already covered — propose FRESH directions that build on, not duplicate, these):
+{{archiveExamples}}
+
+Propose 3-4 DISTINCT campaign focus options a stakeholder could choose between. Each should be a different angle on the calendar topic, timely, and grounded in recent real-world developments (use web search). Recommend ONE.
+
+Return JSON:
+{
+  "concepts": [
+    {
+      "id": "1",
+      "title": "concise campaign title (2-5 words, like 'Phone-Based Social Engineering')",
+      "subtitle": "one-line framing",
+      "angle": "1-2 sentence strategic hook for stakeholders",
+      "whyFresh": "how this differs from what the archive already covered",
+      "weeklyFocus": ["Week 1 sub-topic", "Week 2 sub-topic", "Week 3 sub-topic", "Week 4 sub-topic"],
+      "recommended": true
+    }
+  ]
+}`;
+
+/* ------------------------------------------------------------------ */
+/* 2. Source research                                                  */
+/* ------------------------------------------------------------------ */
+
+export const CIAB_SOURCES_SYSTEM = `You are a Living Security content researcher sourcing a Campaign in a Box. You have a web_search tool — use it to find and OPEN every source before citing it. Return JSON only.
+
+${CIAB_SOURCING_RULES}`;
+
+export const CIAB_SOURCES_USER = `Campaign: {{title}} — {{subtitle}}
+Weekly focus areas: {{weeklyFocus}}
+
+Find 4-6 high-quality, recent sources (last 6-9 months preferred) that back the key statistics and claims this campaign will make across its introduction and weekly sections. Each source must be a real page you opened via web search. Prefer government, primary, and named-report tiers. Pair a headline statistic with each source.
+
+Return JSON:
+{
+  "sources": [
+    {
+      "name": "short label, e.g. 'Verizon DBIR 2026'",
+      "publisher": "publisher / org",
+      "url": "https://... (the exact page you opened)",
+      "date": "publication date or period",
+      "claim": "the specific statistic or finding this source supports",
+      "tier": "tier + quality note, e.g. 'Named report (Excellent)'"
+    }
+  ]
+}`;
+
+/* ------------------------------------------------------------------ */
+/* 3. Stakeholder outline                                              */
+/* ------------------------------------------------------------------ */
+
+export const CIAB_OUTLINE_SYSTEM = `You are a Living Security content writer building the STAKEHOLDER OUTLINE for a Campaign in a Box. This outline is what Morgan and stakeholders sign off on before drafting. It must be complete, specific, and cite statistics inline with their source. Return JSON only.
+
+${CIAB_STYLE_RULES}`;
+
+export const CIAB_OUTLINE_USER = `Campaign: {{title}} — {{subtitle}}
+Chosen angle: {{angle}}
+Weekly focus areas: {{weeklyFocus}}
+
+Vetted sources (cite ONLY these, inline by name):
+{{sources}}
+
+Past archive examples (match the outline format and voice):
+{{archiveExamples}}
+
+Write the full stakeholder outline as JSON. Mirror the archive outline format exactly: a Big Idea, Why This Why Now (each item a cited statistic), What Makes This Box Fresh, the Sources list, an Introduction section plus one section per weekly sub-topic and a closing "Safe Habits" section (each with prose, 3-4 key teaching points, and a Safe Data Moment / Your Move), a Campaign Arc table (one row per week), Who This Is For, and a proposed tagline.
+
+Return JSON:
+{
+  "title": "campaign title",
+  "subtitle": "italic subtitle line",
+  "bigIdea": "2 short paragraphs stating the core insight and the empowering premise",
+  "whyThisWhyNow": ["cited stat 1 (According to X, …)", "cited stat 2", "cited stat 3"],
+  "whatMakesThisFresh": "how this box differs from prior coverage of the topic",
+  "sources": [ { "name": "", "publisher": "", "url": "", "date": "", "claim": "", "tier": "" } ],
+  "sections": [
+    {
+      "title": "🎯 Introduction: …",
+      "description": "prose with cited stats",
+      "keyTeachingPoints": ["", "", ""],
+      "safeDataMoment": "the action line for this section"
+    }
+  ],
+  "campaignArc": [ { "week": 1, "topic": "", "focus": "" } ],
+  "whoThisIsFor": "who the campaign is for and why",
+  "tagline": "a short campaign tagline"
+}`;
+
+/* ------------------------------------------------------------------ */
+/* 4. Full content (generated in chunks to stay within token limits)   */
+/* ------------------------------------------------------------------ */
+
+const CIAB_CONTENT_CONTEXT = `Campaign: {{title}}
+Approved outline (expand faithfully — keep the same structure, sub-topics, and messages):
+{{outline}}
+
+Vetted sources (cite ONLY these, inline by name):
+{{sources}}
+
+Past archive examples (match voice, structure, formatting, and word counts):
+{{archiveExamples}}
+
+${CIAB_STYLE_RULES}`;
+
+export const CIAB_CONTENT_SYSTEM = `You write Living Security Campaign in a Box content. Every field you return is FINAL copy that ships to enterprise employees after review. Match the archive examples' voice, structure, formatting, and word counts precisely. Return JSON only.`;
+
+/** Chunk A: Welcome Message + Blog. */
+export const CIAB_CONTENT_WELCOME_BLOG_USER = `${CIAB_CONTENT_CONTEXT}
+
+Write the Welcome Message and the Blog.
+
+- welcome.body: the program-owner note. Open with "Hello!". Welcome them to "your {{title}} Campaign in a Box!". List what is in the box (a blog post from Living Security, weekly email messages, weekly chat messages, complementary resources). Invite them to edit and customize freely. Close with "Live Secure," then "The Living Security Team". 200-225 words. No contractions.
+- blog: 1000-1150 words total. blog.intro = 2-3 short opening paragraphs establishing the theme. blog.sections = one per weekly sub-topic (about 4), each with a heading, prose that cites sources inline by name, and a "yourMove" action. blog.conclusion = a closing section that ties the campaign together with a "yourFinalMove". No contractions.
+
+Return JSON:
+{
+  "welcome": { "body": "" },
+  "blog": {
+    "title": "standalone blog title/hook",
+    "intro": "",
+    "sections": [ { "heading": "", "body": "", "yourMove": "" } ],
+    "conclusion": { "heading": "", "body": "", "yourFinalMove": "" }
+  }
+}`;
+
+/** Chunk B: the four weekly emails. */
+export const CIAB_CONTENT_EMAILS_USER = `${CIAB_CONTENT_CONTEXT}
+
+Write the FOUR weekly campaign emails (Week 1-4). Week 1 introduces the whole topic; weeks 2-4 each go deep on one weekly sub-topic from the outline. Each email is 250-300 words, opens with a greeting, cites sources inline by name where relevant, and ENDS with "Until next time," then {{ SIGNATURE }} on its own line. Each has an emoji + Title Case subject line. No contractions. Each email is standalone (no cross-references).
+
+Return JSON:
+{
+  "emails": [
+    { "week": 1, "greeting": "", "subject": "📱 …", "body": "… Until next time,\\n{{ SIGNATURE }}" }
+  ]
+}`;
+
+/** Chunk C: the four weekly chats + complementary resources. */
+export const CIAB_CONTENT_CHATS_USER = `${CIAB_CONTENT_CONTEXT}
+
+Write the FOUR weekly chat messages (Week 1-4) and the Complementary Resources list. Each chat is 100-150 words, emoji-opened, casual (contractions allowed), tied to that week's sub-topic, and ends with a call for interaction — a short poll (A/B/C/D or emoji options) or a reply prompt. Keep each chat standalone. The poll question must be empowering and non-confessional (ask what the reader would do or knows, never make them admit a mistake).
+
+For resources, recommend 3-5 real Living Security training module names relevant to the topic (e.g. "Cyber Guide: Phishing Awareness and Evolving Threats", "Quick Tip: Social Engineering").
+
+Return JSON:
+{
+  "chats": [ { "week": 1, "message": "" } ],
+  "resources": { "items": ["", ""] }
+}`;

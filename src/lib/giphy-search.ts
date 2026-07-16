@@ -162,3 +162,48 @@ export async function pickMiniBoxGifs(topic: string, content?: MiniBoxGifContent
     chat: chat || MOCK_GIFS[2],
   };
 }
+
+/**
+ * Content for the Main Box (CIAB) GIF slots: welcome (1), one per blog GIF slot,
+ * one per weekly email (4), one per weekly chat (4). Queries are derived from
+ * each section's actual text so the GIF reflects the content.
+ */
+export type CiabGifContent = {
+  welcome?: string;
+  /** Blog GIF slots, in order (one per blog section + conclusion). */
+  blog?: string[];
+  /** Weekly email bodies, index 0 = week 1. */
+  emails?: string[];
+  /** Weekly chat messages, index 0 = week 1. */
+  chats?: string[];
+};
+
+async function gifFor(
+  topic: string,
+  text: string | undefined,
+  fallbackSuffix: string,
+  mockIndex: number,
+): Promise<NonNullable<GifSelection>> {
+  const trimmed = text?.trim();
+  const query = trimmed
+    ? `${keywords(trimmed, 4).join(" ")} ${topic}`.trim()
+    : `${topic} ${fallbackSuffix}`.trim();
+  const gif = await searchGiphy(query, keywords(`${topic} ${trimmed || ""}`, 6));
+  return gif || MOCK_GIFS[mockIndex % MOCK_GIFS.length];
+}
+
+export async function pickCiabGifs(topic: string, content: CiabGifContent) {
+  const welcome = await gifFor(topic, content.welcome, "security awareness welcome", 0);
+
+  const blog = await Promise.all(
+    (content.blog || []).map((text, i) => gifFor(topic, text, "cybersecurity", i + 1)),
+  );
+  const emails = await Promise.all(
+    (content.emails || []).map((text, i) => gifFor(topic, text, "cybersecurity email", i)),
+  );
+  const chats = await Promise.all(
+    (content.chats || []).map((text, i) => gifFor(topic, text, "reaction", i + 2)),
+  );
+
+  return { welcome, blog, emails, chats };
+}

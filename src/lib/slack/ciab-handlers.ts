@@ -1,0 +1,332 @@
+import { randomUUID } from "crypto";
+import {
+  loadAppSettingsFromDrive,
+  loadSlackWorkflowFromDrive,
+  saveGeneratedCiabDraftToDrive,
+  saveSlackWorkflowToDrive,
+  type SlackWorkflowRecord,
+} from "@/lib/box-studio-drive-data";
+import { MONTH_LABELS } from "@/lib/annual-calendar-types";
+import { slackPostMessage } from "@/lib/slack/api";
+import { mrkdwnSections } from "@/lib/slack/blocks";
+import {
+  ciabBoxReadyBlocks,
+  ciabConceptBlocks,
+  ciabOutlineReviewBlocks,
+} from "@/lib/slack/newbox-blocks";
+import { resolveSlackReview } from "@/lib/slack/review-settings";
+import {
+  generateCiabConceptOptions,
+  generateCiabOutline,
+  generateCiabSources,
+  generateFullCiab,
+} from "@/lib/ciab-generate";
+import { pickCiabGifs } from "@/lib/giphy-search";
+import { ciabDisplayName } from "@/lib/ciab";
+import {
+  ciabBoxSlackPreview,
+  ciabOutlineSlackPreview,
+  renderCiabBoxHtml,
+  renderCiabOutlineHtml,
+} from "@/lib/ciab-document";
+import { uploadHtmlAsGoogleDoc } from "@/lib/google-drive-doc";
+
+async function persist(workflow: SlackWorkflowRecord) {
+  workflow.updatedAt = new Date().toISOString();
+  try {
+    await saveSlackWorkflowToDrive(workflow);
+  } catch {
+    // non-fatal
+  }
+}
+
+function monthLabelOf(workflow: SlackWorkflowRecord): string {
+  return (
+    workflow.targetMonthLabel ||
+    (workflow.targetMonth ? MONTH_LABELS[workflow.targetMonth - 1] : "") ||
+    ""
+  );
+}
+
+function csmMentionLine(csmUserIds?: string[]) {
+  if (!csmUserIds?.length) return "";
+  return csmUserIds.map((id) => `<@${id}>`).join(" ");
+}
+
+/* ------------------------------------------------------------------ */
+/* Step 1 — concept options                                            */
+/* ------------------------------------------------------------------ */
+
+export async function handleCiabStart({
+  workflowId,
+  channel,
+  threadTs,
+}: {
+  workflowId: string;
+  channel: string;
+  threadTs?: string;
+}) {
+  const workflow = await loadSlackWorkflowFromDrive(workflowId);
+  if (!workflow) {
+    await slackPostMessage({ channel, threadTs, text: "Workflow not found. Run `/newbox ciab` again." });
+    return;
+  }
+
+  const topic = workflow.monthlyCiabTopic || monthLabelOf(workflow) || "this month's topic";
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: `Researching Main CIAB concept options for *${topic}* (this may take a minute)…`,
+  });
+
+  let result;
+  try {
+    result = await generateCiabConceptOptions({ topic, monthLabel: monthLabelOf(workflow) });
+  } catch (err) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `Concept research failed: ${err instanceof Error ? err.message : "unknown error"}`,
+    });
+    return;
+  }
+
+  workflow.ciabConcepts = result.concepts;
+  workflow.status = "concept_selection";
+  await persist(workflow);
+
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: `Main CIAB concept options for ${topic} ready.`,
+    blocks: ciabConceptBlocks(workflow.id, result.concepts, monthLabelOf(workflow)),
+  });
+
+  if (result.note) {
+    await slackPostMessage({ channel, threadTs, text: result.note });
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Step 2 — concept → sources → outline                                */
+/* ------------------------------------------------------------------ */
+
+export async function generateAndPostCiabOutline({
+  workflow,
+  channel,
+  threadTs,
+}: {
+  workflow: SlackWorkflowRecord;
+  channel: string;
+  threadTs?: string;
+}) {
+  const concept = workflow.selectedConcept;
+  if (!concept) throw new Error("No concept selected.");
+
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: `Researching sources for *${concept.title}* and building the stakeholder outline…`,
+  });
+
+  const sourcesResult = await generateCiabSources({ concept });
+  workflow.ciabSources = sourcesResult.sources;
+  await persist(workflow);
+
+  const outlineResult = await generateCiabOutline({
+    concept,
+    sources: sourcesResult.sources,
+  });
+  workflow.ciabOutline = outlineResult.outline;
+  workflow.status = "ciab_outline";
+  await persist(workflow);
+
+  // Post the outline to a commentable Google Doc (best-effort) + inline preview.
+  let docUrl: string | undefined;
+  try {
+    const uploaded = await uploadHtmlAsGoogleDoc({
+      html: renderCiabOutlineHtml(outlineResult.outline),
+      name: `${ciabDisplayName(outlineResult.outline.title, workflow.targetMonth, workflow.targetYear)} — Outline`,
+    });
+    docUrl = uploaded.webViewLink;
+  } catch (err) {
+    console.error("CIAB outline doc upload failed:", err);
+  }
+
+  const preview = mrkdwnSections(ciabOutlineSlackPreview(outlineResult.outline));
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: "Main CIAB outline ready for review.",
+    blocks: ciabOutlineReviewBlocks(workflow.id, preview, docUrl),
+  });
+
+  const notes = [sourcesResult.note, outlineResult.note].filter(Boolean).join(" ");
+  if (notes) await slackPostMessage({ channel, threadTs, text: notes });
+}
+
+export async function handleCiabConceptSelection({
+  workflowId,
+  conceptId,
+  channel,
+  threadTs,
+}: {
+  workflowId: string;
+  conceptId: string;
+  channel: string;
+  threadTs?: string;
+}) {
+  const workflow = await loadSlackWorkflowFromDrive(workflowId);
+  const concept = workflow?.ciabConcepts?.find((c) => c.id === conceptId);
+  if (!workflow || !concept) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `Could not find concept #${conceptId}. Start the CIAB again with the button above.`,
+    });
+    return;
+  }
+
+  workflow.selectedConcept = concept;
+  workflow.status = "ciab_outline";
+  await persist(workflow);
+
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: `Selected *${concept.title}* — researching sources and drafting the outline…`,
+  });
+
+  await generateAndPostCiabOutline({ workflow, channel, threadTs });
+}
+
+export async function handleCiabOutlineRegenerate({
+  workflowId,
+  channel,
+  threadTs,
+}: {
+  workflowId: string;
+  channel: string;
+  threadTs?: string;
+}) {
+  const workflow = await loadSlackWorkflowFromDrive(workflowId);
+  if (!workflow?.selectedConcept) {
+    await slackPostMessage({ channel, threadTs, text: "Workflow not found. Start the CIAB again." });
+    return;
+  }
+  await generateAndPostCiabOutline({ workflow, channel, threadTs });
+}
+
+/* ------------------------------------------------------------------ */
+/* Step 3 — approve outline → full box + GIFs + reviewable Doc         */
+/* ------------------------------------------------------------------ */
+
+export async function handleCiabOutlineApproval({
+  workflowId,
+  channel,
+  threadTs,
+  userId,
+}: {
+  workflowId: string;
+  channel: string;
+  threadTs?: string;
+  userId?: string;
+}) {
+  const workflow = await loadSlackWorkflowFromDrive(workflowId);
+  if (!workflow?.ciabOutline) {
+    await slackPostMessage({ channel, threadTs, text: "Outline not found. Select a concept again." });
+    return;
+  }
+
+  const outline = workflow.ciabOutline;
+  const sources = workflow.ciabSources || outline.sources || [];
+  const boxName = ciabDisplayName(outline.title, workflow.targetMonth, workflow.targetYear);
+
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: `Drafting the full Main Box for *${outline.title}* (welcome + blog + 4 emails + 4 chats + GIFs)…`,
+  });
+
+  let full;
+  try {
+    full = await generateFullCiab({ outline, sources });
+  } catch (err) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `Full box generation failed: ${err instanceof Error ? err.message : "unknown error"}`,
+    });
+    return;
+  }
+
+  const content = full.content;
+
+  // GIFs for every slot: welcome, one per blog section (+conclusion), 4 emails, 4 chats.
+  const blogGifText = [
+    ...content.blog.sections.map((s) => `${s.heading} ${s.body}`),
+    `${content.blog.conclusion.heading} ${content.blog.conclusion.body}`,
+  ];
+  const gifs = await pickCiabGifs(content.topic, {
+    welcome: content.welcome.body,
+    blog: blogGifText,
+    emails: content.emails.map((e) => `${e.subject} ${e.body}`),
+    chats: content.chats.map((c) => c.message),
+  });
+
+  // Reviewable Google Doc (best-effort).
+  let docUrl: string | undefined;
+  try {
+    const uploaded = await uploadHtmlAsGoogleDoc({
+      html: renderCiabBoxHtml(content, gifs),
+      name: boxName,
+    });
+    docUrl = uploaded.webViewLink;
+  } catch (err) {
+    console.error("CIAB full box doc upload failed:", err);
+  }
+
+  const draftId = randomUUID();
+  try {
+    await saveGeneratedCiabDraftToDrive({
+      id: draftId,
+      topic: content.topic,
+      createdAt: new Date().toISOString(),
+      createdBy: userId || workflow.createdBy,
+      source: full.source,
+      outline,
+      sources,
+      content,
+      gifs,
+      targetMonth: workflow.targetMonth,
+      targetYear: workflow.targetYear,
+      reviewDocUrl: docUrl,
+    });
+    workflow.ciabDraftId = draftId;
+  } catch {
+    workflow.ciabDraftId = undefined;
+  }
+  workflow.ciabReviewDocUrl = docUrl;
+  workflow.status = "ciab_full_draft";
+  await persist(workflow);
+
+  const settings = await loadAppSettingsFromDrive();
+  const { csmUserIds } = resolveSlackReview(settings?.slackReview);
+  const mentions = csmMentionLine(csmUserIds);
+
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: `Full Main Box ready: ${boxName}`,
+    blocks: ciabBoxReadyBlocks(boxName, docUrl, mrkdwnSections(ciabBoxSlackPreview(content)), mentions),
+  });
+
+  if (!docUrl) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: "⚠️ Could not create the Google Doc automatically. The draft is saved — retry or check Drive access (BOX_STUDIO_GOOGLE_REFRESH_TOKEN).",
+    });
+  }
+  if (full.note) await slackPostMessage({ channel, threadTs, text: full.note });
+}

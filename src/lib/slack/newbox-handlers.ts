@@ -588,14 +588,14 @@ export async function handleNewboxMonthSelect({
     const ciabTopic = monthCiabTopic(calendars, monthNumber, year);
     const miniTopics = monthMiniBoxTopics(calendars, monthNumber, year);
     workflow.monthlyCiabTopic = ciabTopic;
-    workflow.status = "topic_selection";
+    workflow.status = "newbox_setup";
     await persist(workflow);
 
     await slackPostMessage({
       channel,
       threadTs,
-      text: `CIAB topic for ${displayMonthLabel}`,
-      blocks: ciabMonthReadyBlocks(displayMonthLabel, ciabTopic, miniTopics),
+      text: `Main CIAB topic for ${displayMonthLabel}`,
+      blocks: ciabMonthReadyBlocks(workflowId, displayMonthLabel, ciabTopic, miniTopics),
     });
     return;
   }

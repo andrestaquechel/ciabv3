@@ -119,26 +119,153 @@ export function newboxMonthBlocks(
 }
 
 export function ciabMonthReadyBlocks(
+  workflowId: string,
   monthLabel: string,
   ciabTopic: string | undefined,
   calendarTopics: string[],
 ) {
   const lines = [
-    `*CIAB — ${monthLabel}*`,
+    `*Main CIAB — ${monthLabel}*`,
     ciabTopic ? `Calendar CIAB topic: *${ciabTopic}*` : "_No CIAB topic on calendar for this month._",
   ];
   if (calendarTopics.length) {
     lines.push(`Related Mini Box themes: ${calendarTopics.join(", ")}`);
   }
   lines.push(
-    "\n_Full CIAB generation from Slack is coming next. For now, open Box Studio to build the CIAB deck._",
+    "\nI'll research 3-4 fresh campaign focus options grounded in recent news, then walk through outline → full draft → review.",
   );
   return [
     {
       type: "section",
       text: { type: "mrkdwn", text: lines.join("\n") },
     },
+    {
+      type: "actions",
+      block_id: `ciab_start_${workflowId}`,
+      elements: [
+        {
+          type: "button",
+          action_id: `ciab_start:${workflowId}`,
+          text: { type: "plain_text", text: "Research concept options →", emoji: true },
+          style: "primary",
+        },
+      ],
+    },
   ];
+}
+
+/** 3-4 stakeholder concept options with a Select button per option. */
+export function ciabConceptBlocks(
+  workflowId: string,
+  concepts: import("@/lib/ciab-prompts").CiabConcept[],
+  monthLabel?: string,
+) {
+  const header = monthLabel
+    ? `*Main CIAB concept options — ${monthLabel}*\nShare with stakeholders, then pick one to build:`
+    : "*Main CIAB concept options*\nPick one to build:";
+
+  const blocks: unknown[] = [
+    { type: "section", text: { type: "mrkdwn", text: header } },
+  ];
+
+  for (const c of concepts) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: [
+          `*${c.id}. ${c.title}*${c.recommended ? " ⭐ _recommended_" : ""}`,
+          c.subtitle ? `_${c.subtitle}_` : "",
+          c.angle,
+          c.whyFresh ? `*Why it's fresh:* ${c.whyFresh}` : "",
+          c.weeklyFocus?.length ? `*Weekly focus:* ${c.weeklyFocus.join(" · ")}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      },
+    });
+    blocks.push({
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          action_id: `select_concept:${workflowId}:${c.id}`,
+          text: { type: "plain_text", text: `Build #${c.id}`, emoji: true },
+          value: c.id,
+          style: c.recommended ? "primary" : undefined,
+        },
+      ],
+    });
+    blocks.push({ type: "divider" });
+  }
+
+  return blocks;
+}
+
+/** Outline review with approve / regenerate buttons + a link to the Doc. */
+export function ciabOutlineReviewBlocks(
+  workflowId: string,
+  outlineSections: Array<{ type: "section"; text: { type: "mrkdwn"; text: string } }>,
+  docUrl?: string,
+) {
+  const blocks: unknown[] = [...outlineSections];
+  if (docUrl) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `📄 <${docUrl}|Open the outline in Google Docs to review & comment>` },
+    });
+  }
+  blocks.push({
+    type: "actions",
+    elements: [
+      {
+        type: "button",
+        action_id: `approve_ciab_outline:${workflowId}`,
+        text: { type: "plain_text", text: "Approve outline → draft full box", emoji: true },
+        style: "primary",
+      },
+      {
+        type: "button",
+        action_id: `regenerate_ciab_outline:${workflowId}`,
+        text: { type: "plain_text", text: "Regenerate outline", emoji: true },
+      },
+    ],
+  });
+  return blocks;
+}
+
+/** Final "full box drafted" message with the reviewable Doc link. */
+export function ciabBoxReadyBlocks(
+  boxName: string,
+  docUrl: string | undefined,
+  previewSections: Array<{ type: "section"; text: { type: "mrkdwn"; text: string } }>,
+  csmMentions?: string,
+) {
+  const blocks: unknown[] = [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: `*Full Main Box drafted:* ${boxName}` },
+    },
+    ...previewSections,
+  ];
+  if (docUrl) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `📄 <${docUrl}|Open the full box in Google Docs to review & comment>` },
+    });
+  }
+  blocks.push({
+    type: "context",
+    elements: [
+      {
+        type: "mrkdwn",
+        text: csmMentions
+          ? `${csmMentions} — please review and reply in this thread with changes.`
+          : "Review the Doc and reply in this thread with changes.",
+      },
+    ],
+  });
+  return blocks;
 }
 
 export function topicCandidatesTableBlocks(

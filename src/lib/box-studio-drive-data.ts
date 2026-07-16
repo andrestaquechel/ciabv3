@@ -7,6 +7,7 @@ const APP_SETTINGS_FILE = "app-settings.json";
 const KNOWLEDGE_INDEX_FILE = "knowledge-index.json";
 const TOPIC_MEMORY_FILE = "minibox-topic-memory.json";
 const DRAFTS_FOLDER = "generated-drafts";
+const CIAB_DRAFTS_FOLDER = "generated-ciab-drafts";
 const SLACK_WORKFLOWS_FOLDER = "slack-workflows";
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
@@ -280,6 +281,45 @@ export async function loadGeneratedDraftFromDrive(
   return readJsonFile<GeneratedBoxDraft>(fileId);
 }
 
+export type GeneratedCiabDraft = {
+  id: string;
+  topic: string;
+  createdAt: string;
+  createdBy?: string;
+  source?: string;
+  outline?: import("@/lib/ciab-prompts").CiabOutline;
+  sources?: import("@/lib/ciab-prompts").CiabSource[];
+  content: import("@/lib/ciab").CiabGeneratedContent;
+  gifs?: import("@/lib/ciab").CiabGifs;
+  targetMonth?: number;
+  targetYear?: number;
+  reviewDocUrl?: string;
+};
+
+async function ensureCiabDraftsFolder(): Promise<string> {
+  const dataFolderId = await getSharedDataFolderId();
+  return ensureFolder(dataFolderId, CIAB_DRAFTS_FOLDER);
+}
+
+export async function saveGeneratedCiabDraftToDrive(
+  draft: GeneratedCiabDraft,
+): Promise<void> {
+  const folderId = await ensureCiabDraftsFolder();
+  await upsertJsonFile(folderId, `${draft.id}.json`, draft);
+}
+
+export async function loadGeneratedCiabDraftFromDrive(
+  draftId: string,
+): Promise<GeneratedCiabDraft | null> {
+  const dataFolderId = await findSharedDataFolderId();
+  if (!dataFolderId) return null;
+  const draftsFolderId = await findChildByName(dataFolderId, CIAB_DRAFTS_FOLDER, FOLDER_MIME);
+  if (!draftsFolderId) return null;
+  const fileId = await findChildByName(draftsFolderId, `${draftId}.json`);
+  if (!fileId) return null;
+  return readJsonFile<GeneratedCiabDraft>(fileId);
+}
+
 export type SlackWorkflowRecord = {
   id: string;
   boxType: "mini-box" | "ciab";
@@ -291,7 +331,11 @@ export type SlackWorkflowRecord = {
     | "full_draft"
     | "csm_review"
     | "morgan_review"
-    | "published";
+    | "published"
+    // CIAB (Main Box) stages
+    | "concept_selection"
+    | "ciab_outline"
+    | "ciab_full_draft";
   slackChannel: string;
   slackThreadTs?: string;
   topicCandidates?: import("@/lib/mini-box-topic-prompts").TopicCandidate[];
@@ -302,6 +346,13 @@ export type SlackWorkflowRecord = {
   targetMonth?: number;
   targetYear?: number;
   targetMonthLabel?: string;
+  // CIAB (Main Box) workflow state
+  ciabConcepts?: import("@/lib/ciab-prompts").CiabConcept[];
+  selectedConcept?: import("@/lib/ciab-prompts").CiabConcept;
+  ciabSources?: import("@/lib/ciab-prompts").CiabSource[];
+  ciabOutline?: import("@/lib/ciab-prompts").CiabOutline;
+  ciabDraftId?: string;
+  ciabReviewDocUrl?: string;
   createdAt: string;
   updatedAt: string;
   createdBy?: string;
