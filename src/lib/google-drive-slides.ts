@@ -76,7 +76,10 @@ export async function uploadPptxAsGoogleSlides({
     },
     media: {
       mimeType: PPTX_MIME,
-      body: Readable.from(pptxBuffer),
+      // Wrap the buffer in an array so the whole thing streams as one chunk;
+      // Readable.from(buffer) would iterate it byte-by-byte and corrupt the
+      // multipart upload.
+      body: Readable.from([pptxBuffer]),
     },
     fields: "id, webViewLink",
     supportsAllDrives: true,

@@ -54,6 +54,7 @@ export async function startCsmReview({
   // Upload the deck to Google Drive as a commentable Google Slides file. This
   // replaces the old Slack files.upload call, which failed with missing_scope.
   let slidesLink: string | undefined;
+  let uploadError: string | undefined;
   try {
     const uploaded = await uploadPptxAsGoogleSlides({
       pptxBuffer: Buffer.from(pptxBuffer),
@@ -61,6 +62,7 @@ export async function startCsmReview({
     });
     slidesLink = uploaded.webViewLink;
   } catch (err) {
+    uploadError = err instanceof Error ? err.message : String(err);
     console.error("CSM review: Google Slides upload failed:", err);
   }
 
@@ -77,7 +79,7 @@ export async function startCsmReview({
     await slackPostMessage({
       channel,
       threadTs,
-      text: "⚠️ Could not create the Google Slides deck automatically — open the box in Box Studio to export it manually.",
+      text: `⚠️ Could not create the Google Slides deck automatically${uploadError ? `: ${uploadError.slice(0, 300)}` : ""}. Open the box in Box Studio to export it manually.`,
     });
   }
 
