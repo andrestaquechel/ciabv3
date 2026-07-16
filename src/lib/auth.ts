@@ -8,6 +8,9 @@ const googleScopes = [
   "https://www.googleapis.com/auth/drive.readonly",
   "https://www.googleapis.com/auth/drive.file",
   "https://www.googleapis.com/auth/presentations.readonly",
+  // Write scope for Stage 2: copy the branded master deck and fill its tokens
+  // via the Slides API (renderCiabDeckFromMaster).
+  "https://www.googleapis.com/auth/presentations",
 ].join(" ");
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
