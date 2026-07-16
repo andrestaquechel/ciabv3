@@ -176,11 +176,14 @@ function findCaptionShape(slideXml: string): string | null {
   return shapes.find((s) => /vi(a|ew)\s*giphy/i.test(shapePlainText(s))) || null;
 }
 
-const GIF_GAP = 110000;
-const GIF_MIN_H = 500000; // ~0.55in — below this, skip the GIF instead of shrinking
-const GIF_MAX_H = 2050000; // ~2.1in — never taller than this
-const GIF_MAX_W = 3500000; // ~3.6in
-const GIF_TOP_LIMIT = 1300000; // keep clear of the red page header
+const SLIDE_H = 10058400;
+const GIF_GAP = 137160; // 0.15in — uniform gap: text → GIF and GIF → caption
+const CAP_GAP = 91440; // 0.10in — GIF bottom → caption top
+const GIF_TARGET_H = 1920240; // ~2.1in — preferred GIF height
+const GIF_MIN_H = 480000; // ~0.53in — below this, skip the GIF
+const GIF_MAX_W = 3520440; // ~3.85in
+const GIF_TOP_LIMIT = 1280160; // keep clear of the red page header
+const BOTTOM_MARGIN = 320040; // keep the caption clear of the slide bottom
 const EMU_PER_PT = 12700;
 
 type Geom = { x: number; y: number; cx: number; cy: number };
@@ -217,41 +220,58 @@ function estimateTextHeight(shapeXml: string, widthEMU: number): number {
 }
 
 /**
- * Fit the GIF into the whitespace between the caption and the text directly
- * above it, so it never lands on top of the copy. Preserves aspect, centers on
- * the caption, and clamps to sane min/max.
+ * Systematic GIF placement, anchored to the copy:
+ *   text bottom → [GIF_GAP] → GIF → [CAP_GAP] → "Via Giphy" caption
+ * The GIF always sits a uniform gap below where the copy ends, and the caption
+ * always sits a uniform gap below the GIF — so the spacing is identical no matter
+ * how much text a slide carries. The caption is moved to follow the GIF. Any
+ * fixed content that lives BELOW (welcome list, next blog section) constrains
+ * the band, shrinking the GIF; if the band is too small, the GIF is skipped.
+ * Returns the GIF box and the new caption Y (or null to skip).
  */
-function computeGifBox(slideXml: string, captionXml: string, cap: Geom, gifW: number, gifH: number): Geom | null {
+function computeGifPlacement(
+  slideXml: string,
+  captionXml: string,
+  cap: Geom,
+  gifW: number,
+  gifH: number,
+): { box: Geom; captionY: number } | null {
   const aspect = gifH / gifW || 0.5625;
   const capCenterX = cap.x + cap.cx / 2;
-  const capTop = cap.y;
 
-  // Lowest text bottom among shapes above the caption that share its column.
   let aboveBottom = GIF_TOP_LIMIT;
+  let belowTop = SLIDE_H - BOTTOM_MARGIN;
   for (const s of geomTextShapes(slideXml)) {
     if (s.xml === captionXml) continue;
     const horizOverlap = !(s.box.x + s.box.cx < cap.x - 250000 || s.box.x > cap.x + cap.cx + 250000);
     if (!horizOverlap) continue;
-    if (s.box.y >= capTop) continue; // not above the caption
-    const bottom = s.box.y + estimateTextHeight(s.xml, s.box.cx);
-    aboveBottom = Math.max(aboveBottom, Math.min(bottom, capTop));
+    if (s.box.y < cap.y) {
+      // Text above the caption's original position — anchor the GIF below it.
+      aboveBottom = Math.max(aboveBottom, s.box.y + estimateTextHeight(s.xml, s.box.cx));
+    } else {
+      // Fixed content below — the GIF + caption must clear it.
+      belowTop = Math.min(belowTop, s.box.y);
+    }
   }
 
-  const bottomLimit = capTop - GIF_GAP;
-  const availH = bottomLimit - (aboveBottom + GIF_GAP);
-  // Not enough clear space between the copy and the caption — skip the GIF
-  // entirely rather than lay it over the words.
-  if (availH < GIF_MIN_H) return null;
+  const gifTop = aboveBottom + GIF_GAP;
+  const band = belowTop - GIF_GAP - gifTop; // room for GIF + CAP_GAP + caption
+  let cy = Math.min(GIF_TARGET_H, band - CAP_GAP - cap.cy);
+  if (cy < GIF_MIN_H) return null;
 
-  let cy = Math.min(availH, GIF_MAX_H);
   let cx = Math.round(cy / aspect);
   if (cx > GIF_MAX_W) {
     cx = GIF_MAX_W;
     cy = Math.round(cx * aspect);
   }
   const x = Math.round(capCenterX - cx / 2);
-  const y = bottomLimit - cy;
-  return { x, y, cx, cy };
+  const captionY = gifTop + cy + CAP_GAP;
+  return { box: { x, y: gifTop, cx, cy }, captionY };
+}
+
+/** Move a caption shape to a new Y (preserving X). */
+function setCaptionY(shapeXml: string, y: number): string {
+  return shapeXml.replace(/<a:off x="(-?\d+)" y="-?\d+"\/>/, (_m, x) => `<a:off x="${x}" y="${y}"/>`);
 }
 
 function buildPicXml(id: number, relId: string, name: string, box: { x: number; y: number; cx: number; cy: number }): string {
@@ -313,11 +333,16 @@ async function injectGifs(zip: JSZip, gifs: Partial<CiabGifs> | undefined): Prom
     const capBox = caption ? readOffExt(caption) : null;
     if (!caption || !capBox) continue;
 
-    // Geometry first: fit the GIF into the gap between the caption and the text
-    // above it. If there is no clear space, skip the GIF rather than cover copy.
+    // Geometry first: anchor the GIF a uniform gap below the copy and move the
+    // caption below the GIF. If there is no clear space, skip rather than cover.
     const { w, h } = gifDimensions(buf);
-    const box = computeGifBox(slideXml, caption, capBox, w, h);
-    if (!box) continue;
+    const placement = computeGifPlacement(slideXml, caption, capBox, w, h);
+    if (!placement) continue;
+    const { box, captionY } = placement;
+
+    // Move the "Via Giphy" caption to sit just below the GIF.
+    const movedCaption = setCaptionY(caption, captionY);
+    if (movedCaption !== caption) slideXml = slideXml.replace(caption, () => movedCaption);
 
     // Media + relationship
     const mediaName = `ciab-gif-slide${slide}.gif`;
