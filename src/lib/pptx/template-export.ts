@@ -89,6 +89,26 @@ function endParaProps(paragraph: string): string {
   return m ? m[0] : '<a:endParaRPr lang="en"/>';
 }
 
+/** A whole line wrapped in markdown emphasis (e.g. the chat "_Hint: …_" line)
+ *  should render as real italic/bold, not show the literal * or _ characters. */
+function parseEmphasis(line: string): { text: string; italic: boolean; bold: boolean } {
+  const wrapped = (o: string) =>
+    line.length > o.length * 2 && line.startsWith(o) && line.endsWith(o);
+  if (wrapped("**") || wrapped("__")) return { text: line.slice(2, -2), italic: false, bold: true };
+  if (wrapped("*") || wrapped("_")) return { text: line.slice(1, -1), italic: true, bold: false };
+  return { text: line, italic: false, bold: false };
+}
+
+/** Add i="1"/b="1" to a run's <a:rPr> opening tag (self-closing or not). */
+function withEmphasis(rPr: string, italic: boolean, bold: boolean): string {
+  if (!italic && !bold) return rPr;
+  let add = "";
+  if (bold && !/\bb="1"/.test(rPr)) add += ' b="1"';
+  if (italic && !/\bi="1"/.test(rPr)) add += ' i="1"';
+  if (!add) return rPr;
+  return rPr.replace(/^<a:rPr\b([^>]*?)(\/?)>/, (_m, attrs, slash) => `<a:rPr${attrs}${add}${slash}>`);
+}
+
 /** Rebuild a single paragraph, keeping its pPr and first-run styling. */
 function setParagraphText(
   paragraph: string,
@@ -99,8 +119,9 @@ function setParagraphText(
   if (line.trim() === "") {
     return `<a:p>${pPr}${endParaProps(paragraph)}</a:p>`;
   }
-  const rPr = firstRunProps(paragraph) || fallbackRPr;
-  return `<a:p>${pPr}<a:r>${rPr}<a:t>${escapeXml(line)}</a:t></a:r></a:p>`;
+  const { text, italic, bold } = parseEmphasis(line);
+  const rPr = withEmphasis(firstRunProps(paragraph) || fallbackRPr, italic, bold);
+  return `<a:p>${pPr}<a:r>${rPr}<a:t>${escapeXml(text)}</a:t></a:r></a:p>`;
 }
 
 /**
@@ -178,6 +199,127 @@ function replaceShapeText(
   );
 
   return slideXml.replace(shape, () => newShape);
+}
+
+// --- dynamic GIF layout ---------------------------------------------------
+//
+// The content slides stack vertically: [text above] → [GIF] → ["Via Giphy"] →
+// (sometimes) [text below]. The template fixes those positions for the
+// reference deck, so longer generated copy overflows onto the GIF. When (and
+// only when) the text above would run into the GIF, we slide the GIF down to
+// clear it, shrink the GIF (kept centered, aspect preserved) if the remaining
+// space is tight, then restack the caption and any below-text. Content that
+// already fits leaves the pristine template layout untouched.
+
+const SLIDE_H_EMU = 10058400;
+const GIF_BOTTOM_MARGIN = 260000;
+const GIF_GAP = 170000;
+const MIN_GIF_SCALE = 0.55;
+
+type GifLayout = { aboveIdx: number; captionIdx: number; belowIdx?: number };
+
+const GIF_LAYOUT: Record<number, GifLayout> = {
+  2: { aboveIdx: 1, captionIdx: 3, belowIdx: 2 }, // intro / GIF / caption / contents
+  4: { aboveIdx: 0, captionIdx: 2, belowIdx: 1 }, // greeting+body / GIF / caption / callout
+  7: { aboveIdx: 1, captionIdx: 2 }, //               chat / GIF / caption
+};
+
+function shapeOff(el: string): { x: number; y: number } | null {
+  const m = el.match(/<a:off x="(-?\d+)" y="(-?\d+)"\/>/);
+  return m ? { x: Number(m[1]), y: Number(m[2]) } : null;
+}
+function shapeExt(el: string): { cx: number; cy: number } | null {
+  const m = el.match(/<a:ext cx="(\d+)" cy="(\d+)"\/>/);
+  return m ? { cx: Number(m[1]), cy: Number(m[2]) } : null;
+}
+function firstFontHundredths(shape: string): number {
+  const m = shape.match(/sz="(\d+)"/);
+  return m ? Number(m[1]) : 1100;
+}
+
+/** Rough rendered height (EMU) of a text shape's content, with a safety margin
+ *  so we err toward clearing the GIF rather than overlapping it. Trailing blank
+ *  "padding" paragraphs are ignored — an un-edited (default) shape keeps them,
+ *  and counting them would wildly overestimate the height. */
+function estimateShapeHeightEMU(shape: string): number {
+  const ext = shapeExt(shape);
+  const width = ext ? ext.cx : 6862200;
+  const pt = firstFontHundredths(shape) / 100;
+  const lineH = 1.32 * pt * 12700;
+  const charW = 0.55 * pt * 12700;
+  const cpl = Math.max(12, Math.floor(width / charW));
+  const paras = [...shape.matchAll(/<a:p>[\s\S]*?<\/a:p>/g)].map((m) => m[0]);
+  let last = paras.length - 1;
+  while (last >= 0 && paragraphText(paras[last]).trim() === "") last--;
+  let lines = 0;
+  for (let i = 0; i <= last; i++) {
+    const t = paragraphText(paras[i]).replace(/\s+/g, " ").trim();
+    if (t === "") {
+      lines += 0.85;
+      continue;
+    }
+    lines += Math.max(1, Math.ceil([...t].length / cpl));
+  }
+  return Math.round(lines * lineH * 1.15);
+}
+
+function setOffY(el: string, y: number): string {
+  return el.replace(/<a:off x="(-?\d+)" y="-?\d+"\/>/, (_m, x) => `<a:off x="${x}" y="${y}"/>`);
+}
+
+/** Reposition (and if needed, shrink) the GIF on a content slide so it clears
+ *  the text above it and the caption / below-text still fit underneath. */
+function layoutGifSlide(xml: string, cfg: GifLayout): string {
+  const texts = getTextShapes(xml);
+  const above = texts[cfg.aboveIdx];
+  const caption = texts[cfg.captionIdx];
+  const below = cfg.belowIdx != null ? texts[cfg.belowIdx] : null;
+  const picMatch = xml.match(/<p:pic\b[\s\S]*?<\/p:pic>/);
+  if (!above || !caption || !picMatch) return xml;
+  const pic = picMatch[0];
+
+  const aOff = shapeOff(above);
+  const pOff = shapeOff(pic);
+  const pExt = shapeExt(pic);
+  const cExt = shapeExt(caption);
+  if (!aOff || !pOff || !pExt || !cExt) return xml;
+
+  const aboveBottom = aOff.y + estimateShapeHeightEMU(above);
+  const origTop = pOff.y;
+  const origH = pExt.cy;
+  const origW = pExt.cx;
+  const centerX = pOff.x + origW / 2;
+
+  // Only intervene when the text above actually runs into the GIF. Otherwise
+  // leave the pristine template layout completely untouched (no move, no shrink).
+  if (aboveBottom + GIF_GAP <= origTop) return xml;
+
+  const newTop = Math.round(aboveBottom + GIF_GAP);
+
+  const belowH = below ? estimateShapeHeightEMU(below) : 0;
+  const reserveBelow = below ? GIF_GAP + belowH : 0;
+  const bottomLimit = SLIDE_H_EMU - GIF_BOTTOM_MARGIN - cExt.cy - GIF_GAP - reserveBelow;
+  const maxH = bottomLimit - newTop;
+
+  let newH = origH;
+  let newW = origW;
+  if (maxH < origH) {
+    const scale = Math.min(1, Math.max(MIN_GIF_SCALE, maxH / origH));
+    newH = Math.round(origH * scale);
+    newW = Math.round(origW * scale);
+  }
+
+  const newX = Math.round(centerX - newW / 2);
+  const captionTop = newTop + newH + GIF_GAP;
+  const belowTop = below ? captionTop + cExt.cy + GIF_GAP : null;
+
+  const newPic = pic
+    .replace(/<a:off x="-?\d+" y="-?\d+"\/>/, `<a:off x="${newX}" y="${newTop}"/>`)
+    .replace(/<a:ext cx="\d+" cy="\d+"\/>/, `<a:ext cx="${newW}" cy="${newH}"/>`);
+  let out = xml.replace(pic, () => newPic);
+  out = out.replace(caption, () => setOffY(caption, captionTop));
+  if (below && belowTop != null) out = out.replace(below, () => setOffY(below, belowTop));
+  return out;
 }
 
 // --- content mapping ------------------------------------------------------
@@ -284,8 +426,8 @@ export async function buildMiniBoxFromTemplate(
     zip.file(slidePath, xml);
   }
 
-  // Content slides: whiten the red-band title placeholders (header + subject)
-  // and grow overflow-prone body boxes so the preview matches PowerPoint.
+  // Content slides: whiten the red-band title placeholders (header + subject),
+  // grow overflow-prone body boxes, then lay out the GIF around the final text.
   for (const slideNum of [2, 4, 5, 7]) {
     const slidePath = `ppt/slides/slide${slideNum}.xml`;
     const file = zip.file(slidePath);
@@ -296,6 +438,7 @@ export async function buildMiniBoxFromTemplate(
     let xml = await file.async("string");
     xml = fixContentHeaderColor(xml);
     xml = fixContentBoxOverflow(slideNum, xml);
+    if (GIF_LAYOUT[slideNum]) xml = layoutGifSlide(xml, GIF_LAYOUT[slideNum]);
     zip.file(slidePath, xml);
   }
 
