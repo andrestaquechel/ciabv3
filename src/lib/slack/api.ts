@@ -29,8 +29,18 @@ export async function slackPostMessage({
       unfurl_links: false,
     }),
   });
-  const data = (await res.json()) as { ok: boolean; error?: string; ts?: string };
-  if (!data.ok) throw new Error(data.error || "Slack chat.postMessage failed.");
+  const data = (await res.json()) as {
+    ok: boolean;
+    error?: string;
+    ts?: string;
+    response_metadata?: { messages?: string[] };
+  };
+  if (!data.ok) {
+    const detail = data.response_metadata?.messages?.length
+      ? ` (${data.response_metadata.messages.join("; ")})`
+      : "";
+    throw new Error(`${data.error || "Slack chat.postMessage failed."}${detail}`);
+  }
   return data;
 }
 
