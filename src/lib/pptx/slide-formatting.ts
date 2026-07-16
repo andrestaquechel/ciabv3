@@ -29,6 +29,12 @@ const DIVIDER_END_PARA_RPR = `<a:endParaRPr sz="5600">${FILL_BLACK}${FONT_INTER}
 const COVER_TOPIC_RUN_PR = `<a:rPr lang="en" sz="2600">${FILL_ACCENT1}${FONT_INTER}</a:rPr>`;
 const COVER_SUBTITLE_RUN_PR = `<a:rPr lang="en" sz="1800" u="sng">${FONT_INTER_MEDIUM}</a:rPr>`;
 
+/** Font size (hundredths of a pt) for the red-band page header. The template
+ *  ships these titles at 16pt, which reads small against the band — the house
+ *  style uses a larger header. The one-pager subject line (a lower title
+ *  placeholder) keeps its own size. */
+const CONTENT_HEADER_SZ = 2800;
+
 export function escapeXml(text: string) {
   return text
     .replace(/&/g, "&amp;")
@@ -120,7 +126,7 @@ const CONTENT_BOX_MIN_CY: Record<number, Record<number, number>> = {
 };
 
 /**
- * Color the content-slide title placeholders white.
+ * Color the content-slide title placeholders white and enlarge the page header.
  *
  * The header and subject on content slides are `title` placeholders sitting on
  * the red band. Their runs carry a `schemeClr dk1` fill, but because they are
@@ -129,14 +135,21 @@ const CONTENT_BOX_MIN_CY: Record<number, Record<number, number>> = {
  * resolution, so it renders them dark. Since these are static template labels,
  * we drop the placeholder designation (so pptx-viewer honors the run fill) and
  * force white on any `title` placeholder shape (header + subject), leaving the
- * dark body/callout text untouched. Position/size stay intact because these
- * shapes carry explicit off/ext and run sizes.
+ * dark body/callout text untouched.
+ *
+ * We also enlarge the page header (the topmost title placeholder) to the house
+ * style size; the one-pager subject line is a lower title placeholder and keeps
+ * its own smaller size.
  */
 export function fixContentHeaderColor(slideXml: string): string {
   let xml = slideXml;
   for (const shape of getTextShapes(xml)) {
     if (!/<p:ph[^>]*type="title"/.test(shape)) continue;
-    const patched = shape
+    // The page header sits at the top of the slide; the one-pager subject line
+    // is a second title placeholder lower down — enlarge only the header.
+    const yMatch = shape.match(/<a:off x="-?\d+" y="(-?\d+)"\/>/);
+    const isHeader = yMatch ? Number(yMatch[1]) < 500000 : false;
+    let patched = shape
       .replace(/<p:ph[^>]*\/>/g, "")
       .replace(/<a:schemeClr val="dk1"\/>/g, `<a:srgbClr val="FFFFFF"/>`)
       .replace(/<a:rPr lang="en"\/>/g, `<a:rPr lang="en">${FILL_WHITE}</a:rPr>`)
@@ -144,6 +157,13 @@ export function fixContentHeaderColor(slideXml: string): string {
         /<a:endParaRPr([^>]*)\/>/g,
         `<a:endParaRPr$1>${FILL_WHITE}</a:endParaRPr>`,
       );
+    if (isHeader) {
+      patched = patched
+        .replace(/\bsz="\d+"/g, `sz="${CONTENT_HEADER_SZ}"`)
+        .replace(/<a:rPr\b((?:(?!sz=)[^>])*?)(\/?)>/g, (m, attrs, slash) =>
+          /\bsz=/.test(m) ? m : `<a:rPr${attrs} sz="${CONTENT_HEADER_SZ}"${slash}>`,
+        );
+    }
     if (patched !== shape) xml = xml.replace(shape, patched);
   }
   return xml;
