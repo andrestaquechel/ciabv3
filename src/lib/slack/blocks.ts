@@ -1,5 +1,50 @@
 import type { TopicCandidate } from "@/lib/mini-box-topic-prompts";
 
+/** Slack rejects any section whose text exceeds 3000 chars with invalid_blocks.
+ *  Stay safely under that. */
+const SLACK_SECTION_LIMIT = 2900;
+
+/**
+ * Split long mrkdwn text into multiple section blocks that each stay under
+ * Slack's 3000-char-per-section limit. Splits on line boundaries and
+ * hard-splits any single line that is itself too long, so a long outline or
+ * slide preview posts as several blocks instead of failing the whole message.
+ */
+export function mrkdwnSections(
+  text: string,
+): Array<{ type: "section"; text: { type: "mrkdwn"; text: string } }> {
+  const safe = (text || "").trim();
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const line of safe.split("\n")) {
+    if (line.length > SLACK_SECTION_LIMIT) {
+      if (current) {
+        chunks.push(current);
+        current = "";
+      }
+      for (let i = 0; i < line.length; i += SLACK_SECTION_LIMIT) {
+        chunks.push(line.slice(i, i + SLACK_SECTION_LIMIT));
+      }
+      continue;
+    }
+    const candidate = current ? `${current}\n${line}` : line;
+    if (candidate.length > SLACK_SECTION_LIMIT) {
+      if (current) chunks.push(current);
+      current = line;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+  if (!chunks.length) chunks.push("(empty)");
+
+  return chunks.map((c) => ({
+    type: "section" as const,
+    text: { type: "mrkdwn" as const, text: c },
+  }));
+}
+
 export function topicCandidatesBlocks(
   workflowId: string,
   candidates: TopicCandidate[],
@@ -87,10 +132,7 @@ export function formatOutlineSlack(
 
 export function outlineReviewBlocks(workflowId: string, outlineText: string) {
   return [
-    {
-      type: "section",
-      text: { type: "mrkdwn", text: outlineText },
-    },
+    ...mrkdwnSections(outlineText),
     {
       type: "actions",
       elements: [
@@ -147,10 +189,7 @@ export function csmReviewBlocks(
       type: "section",
       text: { type: "mrkdwn", text: header },
     },
-    {
-      type: "section",
-      text: { type: "mrkdwn", text: slidePreview },
-    },
+    ...mrkdwnSections(slidePreview),
     {
       type: "context",
       elements: [
