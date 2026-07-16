@@ -104,11 +104,18 @@ function setParagraphText(
 }
 
 /**
- * Substitute a text shape's content while preserving the template's paragraph
- * structure (run sizes/colors/fonts and blank-line spacers). New content lines
- * are mapped onto the template's content paragraphs in order; blank spacer
- * paragraphs are kept untouched. Extra lines are appended using the shape's
- * primary run style, separated by a blank spacer to mimic template rhythm.
+ * Substitute a text shape's content while preserving the template's per-paragraph
+ * styling (run sizes/colors/fonts) and honoring the NEW content's own line
+ * structure.
+ *
+ * The generated content's newlines define the paragraph layout: a single "\n"
+ * is a new line, a blank line ("\n\n") is one intentional spacer. Each content
+ * line is styled from the matching template content paragraph (by index) so
+ * per-line styling like a bold list header is kept; overflow lines reuse the
+ * last content style. The template's trailing "padding" paragraphs (a run of
+ * empty paragraphs many templates carry for spacing) are DROPPED — left in
+ * place they otherwise land in the middle of shorter content, producing huge
+ * gaps and pushing text over the slide's GIF.
  */
 function replaceShapeText(
   slideXml: string,
@@ -129,30 +136,37 @@ function replaceShapeText(
   if (!paragraphs.length) return slideXml;
 
   const shapeRPr = firstRunProps(shape);
-  const contentLines = newText.split("\n").filter((l) => l.trim() !== "");
+  const contentParagraphs = paragraphs.filter(
+    (p) => paragraphText(p).trim() !== "",
+  );
+  const blankTemplate = paragraphs.find((p) => paragraphText(p).trim() === "");
+  const primaryTemplate = contentParagraphs[0] ?? paragraphs[0];
 
-  let cursor = 0;
-  let lastContentParagraph: string | null = null;
-  const spacerParagraph =
-    paragraphs.find((p) => paragraphText(p).trim() === "") ?? null;
+  const makeSpacer = (): string =>
+    blankTemplate
+      ? `<a:p>${paragraphProps(blankTemplate)}${endParaProps(blankTemplate)}</a:p>`
+      : `<a:p>${paragraphProps(primaryTemplate)}<a:endParaRPr lang="en"/></a:p>`;
 
-  const rebuilt: string[] = paragraphs.map((paragraph) => {
-    if (paragraphText(paragraph).trim() === "") return paragraph;
-    lastContentParagraph = paragraph;
-    const line = cursor < contentLines.length ? contentLines[cursor++] : "";
-    return setParagraphText(paragraph, line, shapeRPr);
-  });
+  // Drop leading/trailing blank lines so joins never emit stray spacers.
+  const lines = newText.split("\n");
+  while (lines.length && lines[0].trim() === "") lines.shift();
+  while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
 
-  if (cursor < contentLines.length) {
-    const template = lastContentParagraph ?? paragraphs[0];
-    const spacer =
-      spacerParagraph ??
-      `<a:p>${paragraphProps(template)}<a:endParaRPr lang="en"/></a:p>`;
-    while (cursor < contentLines.length) {
-      rebuilt.push(spacer);
-      rebuilt.push(setParagraphText(template, contentLines[cursor++], shapeRPr));
+  const rebuilt: string[] = [];
+  let ci = 0; // pointer into the template's content paragraphs
+  for (const raw of lines) {
+    if (raw.trim() === "") {
+      rebuilt.push(makeSpacer());
+      continue;
     }
+    const template =
+      contentParagraphs[ci] ??
+      contentParagraphs[contentParagraphs.length - 1] ??
+      primaryTemplate;
+    ci++;
+    rebuilt.push(setParagraphText(template, raw, shapeRPr));
   }
+  if (!rebuilt.length) rebuilt.push(makeSpacer());
 
   const newShape = shape.replace(
     /(<a:lstStyle\/>|<a:lstStyle>[\s\S]*?<\/a:lstStyle>)[\s\S]*?(<\/p:txBody>)/,
@@ -199,11 +213,13 @@ function buildEdits(doc: MiniBoxDocument): ShapeEdit[] {
     [d.welcome.contents, d.welcome.closing].filter(Boolean).join("\n\n"),
   );
 
-  // Slide 4 — one-pager part 1 (greeting + body), callout sidebar, subject
+  // Slide 4 — one-pager part 1 (greeting + body), callout sidebar, subject.
+  // Greeting and body join with a blank line so they read as separate
+  // paragraphs, matching the template's greeting/body rhythm.
   add(
     4,
     0,
-    [s.onePager.greeting, s.onePager.bodyPart1].filter(Boolean).join("\n"),
+    [s.onePager.greeting, s.onePager.bodyPart1].filter(Boolean).join("\n\n"),
     [d.onePager.greeting, d.onePager.bodyPart1].filter(Boolean).join("\n"),
   );
   add(4, 1, s.onePager.callout, d.onePager.callout);
