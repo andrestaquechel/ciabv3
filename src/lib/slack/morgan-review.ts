@@ -100,13 +100,13 @@ Return JSON: { "sections": { "welcome": {...}, "onePager": {...}, "chat": {...} 
 
   const doc = draftToMiniBoxDocument(updatedDraft);
   const pptxBuffer = await buildMiniBoxFromTemplate(doc);
-  const filename = pptxFilename(doc);
+  const filename = pptxFilename(doc, workflow.targetMonth, workflow.targetYear);
 
   await slackUploadFile({
     channel,
     threadTs,
     buffer: Buffer.from(pptxBuffer),
-    filename: filename.replace(".pptx", "-final.pptx"),
+    filename: filename.replace(/\.pptx$/, " (Final).pptx"),
     initialComment: `✅ *Final draft* — ${doc.topic} (CSM feedback applied)`,
   });
 
