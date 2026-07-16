@@ -1,4 +1,4 @@
-import type { MiniBoxDocument, SourceArticle, GeneratedMiniBoxSections } from "@/lib/mini-box";
+import type { SourceArticle, GeneratedMiniBoxSections } from "@/lib/mini-box";
 import {
   anthropicConfigured,
   anthropicJson,
@@ -10,6 +10,7 @@ import {
   articleContext,
   type GenerationPromptsConfig,
   type MiniBoxOutline,
+  isStructuredOutline,
   outlineToContextText,
   resolveGenerationPrompts,
 } from "@/lib/mini-box-prompts";
@@ -17,6 +18,43 @@ import { loadAppSettingsFromDrive } from "@/lib/box-studio-drive-data";
 import { retrieveArchiveExamples } from "@/lib/knowledge-retrieval";
 
 export type { GeneratedMiniBoxSections } from "@/lib/mini-box";
+
+const TEAM_SIGNOFF = "The Living Security Team";
+
+export type FullBoxResult = {
+  source: "outline" | "anthropic" | "mock";
+  sections: GeneratedMiniBoxSections;
+  note?: string;
+  model?: string;
+};
+
+/** Map a structured outline (the approved slide content) onto the deck 1:1. */
+export function outlineToSections(outline: MiniBoxOutline): GeneratedMiniBoxSections {
+  return {
+    welcome: {
+      intro: outline.welcome?.intro ?? "",
+      contents: outline.welcome?.contents ?? "",
+      closing: outline.welcome?.closing?.trim() || TEAM_SIGNOFF,
+    },
+    onePager: {
+      greeting: outline.onePager?.greeting ?? "",
+      subjectLine: outline.onePager?.subjectLine ?? "",
+      bodyPart1: outline.onePager?.bodyPart1 ?? "",
+      callout: outline.onePager?.callout ?? "",
+      bodyPart2: outline.onePager?.bodyPart2 ?? "",
+    },
+    chat: { message: outline.chat?.message ?? "" },
+  };
+}
+
+/** Per-slide GIF search intents derived from the outline (plan first, else content). */
+export function gifPlanFromOutline(outline: MiniBoxOutline) {
+  return {
+    welcome: outline.gifPlan?.welcome || outline.welcome?.intro || outline.topic || "",
+    onePager: outline.gifPlan?.onePager || outline.onePager?.subjectLine || outline.topic || "",
+    chat: outline.gifPlan?.chat || outline.chat?.message || outline.topic || "",
+  };
+}
 
 export async function loadGenerationPrompts(): Promise<Required<GenerationPromptsConfig>> {
   try {
@@ -29,40 +67,28 @@ export async function loadGenerationPrompts(): Promise<Required<GenerationPrompt
 
 function mockOutline(topic: string): MiniBoxOutline {
   return {
-    angle: `Help employees understand ${topic} and take one safer action today.`,
+    topic,
+    angle: `Help employees recognize ${topic} and take one safer action today.`,
     audience: "All employees",
-    keyMessages: [
-      `${topic} creates risk when tools bypass IT oversight`,
-      "Sensitive data can leave approved channels",
-      "When unsure, pause and ask security",
-    ],
-    welcomeFocus: `Why ${topic} matters now and what is in this box`,
-    onePagerHook: `Subject: 👤 ${topic} — what you need to know`,
-    onePagerStructure:
-      "Open with the trend, explain the risk, define the term, close with clear do/don't guidance",
-    chatScenario: `Quick poll: what would you do if ${topic} showed up in your workflow?`,
-    habitToReinforce: "Check with IT before using unapproved tools",
-  };
-}
-
-function mockFullBox(topic: string, outline: MiniBoxOutline | null): GeneratedMiniBoxSections {
-  const hook = outline?.onePagerHook || `Subject: 👤 ${topic}`;
-  return {
     welcome: {
-      intro: `Welcome to your Mini Box on ${topic}. ${outline?.welcomeFocus || "Help your users understand the risk and build one clear habit."}`,
-      contents: `In this topical mini box, you'll find:\n1. A one-pager explaining ${topic} and why it matters.\n2. A chat message with a quick scenario to reinforce one habit.`,
-      closing: "The Living Security Team",
+      intro: `Welcome to your Mini Box on ${topic}. This one is worth a look — we break down what's happening and the simple habits that keep your team safe.`,
+      contents: `In this topical mini box, you'll find:\n1. A one-pager explaining ${topic} and why it matters right now.\n2. A chat message with a quick scenario to reinforce one clear habit.`,
+      closing: TEAM_SIGNOFF,
     },
     onePager: {
-      greeting: "Hey, Team!",
-      subjectLine: hook,
-      bodyPart1: `${outline?.angle || topic} is showing up across organizations faster than policies can keep up. ${outline?.onePagerStructure || ""}`,
-      callout: `${topic}: unapproved tools or practices that bypass IT oversight.`,
-      bodyPart2: `This is both a security and legal issue. Never use tools that have not been pre-approved by IT. If you're not sure, ask.\n\nAll the best,\n{{ SIGNATURE }}`,
+      greeting: "Hi, Team!",
+      subjectLine: `🔒 ${topic}: What You Need to Know`,
+      bodyPart1: `${topic} has been in the news, and it's worth a quick look. Here's what happened and why it matters to you.`,
+      callout: `${topic}: when something feels urgent, pause and verify before you act.`,
+      bodyPart2: `The good news is a few simple habits go a long way:\n🔍 Slow down on urgent or unusual requests.\n📄 Verify through a second, known channel.\n⚠️ Report anything that feels off to security.\n✅ Stick to approved tools and links.\n🙋 Ask when you're unsure — better safe than sorry.\n\nStay safe out there,\n{{ SIGNATURE }}`,
     },
     chat: {
-      message: outline?.chatScenario ||
-        `💡 Quick scenario on ${topic}\n\nWhat is your move when something feels off?\nA. Ignore it\nB. Handle it yourself\nC. Pause and ask security\n\nReply with your answer! 👇`,
+      message: `💡 Quick scenario on ${topic}\n\nSomething feels off — what's your move?\nA. Ignore it 🤷\nB. Handle it yourself 🛠️\nC. Pause and verify 🛑\nD. Ask security 🙋\n\nReply in this thread with your answer! 👇\n\n_Hint: when something pressures you to act fast, that pressure is itself the red flag._`,
+    },
+    gifPlan: {
+      welcome: `${topic} awareness`,
+      onePager: `${topic} warning`,
+      chat: "thinking decision choice",
     },
   };
 }
@@ -105,8 +131,11 @@ export async function generateOutline({
     system: prompts.outlineSystem,
     user,
     temperature: 0.5,
+    maxTokens: 8192,
     model: model || (await resolveAnthropicModel()),
   });
+
+  if (!outline.topic) outline.topic = topic;
 
   return { source: "anthropic" as const, outline, model };
 }
@@ -125,17 +154,21 @@ export async function generateFullMiniBox({
   articles?: SourceArticle[];
   prompts?: GenerationPromptsConfig;
   model?: string;
-}) {
+}): Promise<FullBoxResult> {
+  // A structured outline already holds the approved slide content — the box IS
+  // that outline, so map it 1:1 with no second (drift-prone) model pass.
+  if (isStructuredOutline(outline)) {
+    return { source: "outline", sections: outlineToSections(outline) };
+  }
+
   const prompts = promptOverride
     ? resolveGenerationPrompts(promptOverride)
     : await loadGenerationPrompts();
 
   if (!anthropicConfigured()) {
-    const parsed =
-      typeof outline === "object" && outline ? outline : mockOutline(topic);
     return {
-      source: "mock" as const,
-      sections: mockFullBox(topic, parsed),
+      source: "mock",
+      sections: outlineToSections(mockOutline(topic)),
       note: anthropicMissingKeyMessage(),
     };
   }
@@ -150,16 +183,14 @@ export async function generateFullMiniBox({
     archiveExamples,
   });
 
+  const resolvedModel = model || (await resolveAnthropicModel());
   const sections = await anthropicJson<GeneratedMiniBoxSections>({
     system: prompts.generateSystem,
     user,
     temperature: 0.7,
-    model: model || (await resolveAnthropicModel()),
+    maxTokens: 8192,
+    model: resolvedModel,
   });
 
-  return {
-    source: "anthropic" as const,
-    sections,
-    model: model || (await resolveAnthropicModel()),
-  };
+  return { source: "anthropic", sections, model: resolvedModel };
 }

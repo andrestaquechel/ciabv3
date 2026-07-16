@@ -112,22 +112,62 @@ export function calendarParsedBlocks(
   ];
 }
 
+/**
+ * Render the structured outline (the actual slide content, shown 1:1 for
+ * review). Falls back to a plain string, and to the legacy strategic-brief
+ * shape for outlines saved before the 1:1 change.
+ */
 export function formatOutlineSlack(
   topic: string,
-  outline: import("@/lib/mini-box-prompts").MiniBoxOutline,
+  outline: import("@/lib/mini-box-prompts").MiniBoxOutline | string,
 ) {
+  if (typeof outline === "string") return outline;
+
+  if (outline && typeof outline === "object" && "welcome" in outline && outline.welcome) {
+    const o = outline;
+    return [
+      `*Mini Box outline — ${o.topic || topic}*`,
+      o.angle ? `_${o.angle}_` : "",
+      "",
+      "*Welcome (for Program Owners)*",
+      o.welcome?.intro || "",
+      o.welcome?.contents || "",
+      o.welcome?.closing || "",
+      "",
+      "*One-Pager / Email*",
+      o.onePager?.subjectLine ? `*Subject:* ${o.onePager.subjectLine}` : "",
+      o.onePager?.greeting || "",
+      o.onePager?.bodyPart1 || "",
+      o.onePager?.callout ? `*Callout:* ${o.onePager.callout}` : "",
+      o.onePager?.bodyPart2 || "",
+      "",
+      "*Chat Message*",
+      o.chat?.message || "",
+    ]
+      .filter((l) => l !== "")
+      .join("\n");
+  }
+
+  // Legacy strategic-brief outline (pre-1:1) — best-effort render.
+  const legacy = outline as unknown as Record<string, unknown>;
+  const s = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+  const list = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
   return [
     `*Mini Box outline:* ${topic}`,
-    `*Angle:* ${outline.angle}`,
-    `*Audience:* ${outline.audience}`,
-    `*Key messages:*`,
-    ...outline.keyMessages.map((m) => `• ${m}`),
-    `*Welcome focus:* ${outline.welcomeFocus}`,
-    `*One-pager hook:* ${outline.onePagerHook}`,
-    `*One-pager structure:* ${outline.onePagerStructure}`,
-    `*Chat scenario:* ${outline.chatScenario}`,
-    `*Habit to reinforce:* ${outline.habitToReinforce}`,
-  ].join("\n");
+    s(legacy.angle) ? `*Angle:* ${s(legacy.angle)}` : "",
+    s(legacy.audience) ? `*Audience:* ${s(legacy.audience)}` : "",
+    ...(list(legacy.keyMessages).length
+      ? ["*Key messages:*", ...list(legacy.keyMessages).map((m) => `• ${m}`)]
+      : []),
+    s(legacy.welcomeFocus) ? `*Welcome focus:* ${s(legacy.welcomeFocus)}` : "",
+    s(legacy.onePagerHook) ? `*One-pager hook:* ${s(legacy.onePagerHook)}` : "",
+    s(legacy.onePagerStructure) ? `*One-pager structure:* ${s(legacy.onePagerStructure)}` : "",
+    s(legacy.chatScenario) ? `*Chat scenario:* ${s(legacy.chatScenario)}` : "",
+    s(legacy.habitToReinforce) ? `*Habit to reinforce:* ${s(legacy.habitToReinforce)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function outlineReviewBlocks(workflowId: string, outlineText: string) {
