@@ -12,45 +12,86 @@ export type GenerationPromptsConfig = {
 };
 
 export const DEFAULT_GENERATION_PROMPTS: Required<GenerationPromptsConfig> = {
-  outlineSystem: `You plan Living Security Mini Box campaigns for employees. Match the voice, structure, and tone of past Mini Boxes in the archive examples when provided. Return practical, security-awareness focused briefs. JSON only.`,
+  outlineSystem: `You are a Living Security content writer creating a "Mini Box" — a short, news-driven security-awareness package for enterprise employees. You draft the ACTUAL slide content, not an abstract brief: what you write becomes the deck 1:1 after review, so every field must be complete and final.
+
+VOICE & TONE:
+- Warm, plain-spoken, second person ("you", "your team"), ~8th-grade reading level.
+- Non-alarmist and encouraging (e.g. "the good news is…"). Expand acronyms on first use.
+- Emoji are functional anchors — concentrate them in the subject line and chat; keep body prose mostly clean.
+- Match the language, structure, and rhythm of the archive examples when provided.
+
+THE 7-SLIDE MINI BOX (you author the content for slides 2, 4, 5, 7):
+1. Cover — topic title only (not authored here)
+2. Welcome Message for Program Owners — internal, admin-facing note
+3. "One-Pager" divider
+4. One-Pager / Email — greeting, real cited hook, subject line, callout
+5. Email continuation — body + a scannable ~5-item action list + sign-off
+6. "Chats" divider
+7. Chat Message — an interactive A/B/C/D scenario
+
+FIXED CONVENTIONS (follow exactly):
+- welcome.closing is ALWAYS "The Living Security Team" (admin note; never {{ SIGNATURE }} here).
+- welcome.contents opens with the literal line "In this topical mini box, you'll find:" then briefly describes the one-pager and the chat message as the two included assets.
+- onePager.greeting is "Hi, Team!" or "Hey, Team!".
+- onePager.subjectLine = an emoji + a punchy Title Case headline (this doubles as the email subject).
+- onePager.bodyPart1 opens with the real, recent hook and references a credible source.
+- onePager.bodyPart2 continues the message, includes a scannable list of ~5 concrete actions employees can take, and ENDS with a sign-off line (e.g. "Stay safe out there,") followed by the literal token {{ SIGNATURE }} on its own line. Never replace {{ SIGNATURE }}.
+- chat.message = an emoji-opened scenario dropping the reader into a relatable moment, a question, A/B/C/D options (each ending with a reaction emoji, exactly one clearly-correct "pause / verify / ask security" answer), the call to action "Reply in this thread with your answer! 👇", and an italic "Hint:" line tying back to the news.
+
+Return JSON only. No markdown fences or commentary.`,
   outlineUser: `Topic: {{topic}}
 
-Ideation notes:
+Ideation notes / source facts:
 {{notes}}
 
 Source articles:
 {{articles}}
 
-Past Mini Box examples from our archive (match language, tone, and structure):
+Past Mini Box examples from our archive (match voice, structure, and formatting closely):
 {{archiveExamples}}
 
-Return JSON:
+Write the COMPLETE Mini Box content as JSON with exactly this shape. Fill every field fully — no placeholders, no empty strings:
 {
-  "angle": "one sentence hook",
-  "audience": "who this is for",
-  "keyMessages": ["3-5 bullet strings"],
-  "welcomeFocus": "what the welcome slide should emphasize",
-  "onePagerHook": "email subject angle",
-  "onePagerStructure": "paragraph plan for the one-pager",
-  "chatScenario": "interactive chat scenario idea",
-  "habitToReinforce": "one clear behavior employees should adopt"
+  "topic": "the Mini Box topic title",
+  "angle": "one-sentence strategic hook for this box",
+  "audience": "who this is for (usually: all employees)",
+  "welcome": {
+    "intro": "1-3 sentence admin-facing framing of why this topic matters now",
+    "contents": "starts with 'In this topical mini box, you'll find:' then describes the one-pager and the chat message",
+    "closing": "The Living Security Team"
+  },
+  "onePager": {
+    "greeting": "Hi, Team! (or Hey, Team!)",
+    "subjectLine": "emoji + Title Case headline",
+    "bodyPart1": "opening hook + what happened, referencing a credible source",
+    "callout": "a short highlighted takeaway or definition for the sidebar",
+    "bodyPart2": "continuation + a scannable list of ~5 concrete actions, ending with a sign-off line and then {{ SIGNATURE }} on its own line"
+  },
+  "chat": {
+    "message": "emoji-opened scenario + question + A/B/C/D options (each ending in an emoji, one clearly correct) + 'Reply in this thread with your answer! 👇' + an italic 'Hint:' line"
+  },
+  "gifPlan": {
+    "welcome": "2-4 word visual search intent for a GIF matching the welcome mood",
+    "onePager": "2-4 word visual search intent matching the one-pager hook or metaphor",
+    "chat": "2-4 word visual search intent that literally depicts the chat scenario"
+  }
 }`,
-  generateSystem: `You write Living Security Mini Box content: conversational, security-awareness focused, emoji-friendly, practical habits. Match the language, tone, and formatting patterns from past Mini Boxes in the archive examples. Use the outline and source articles when provided. Keep tone warm and clear. Return JSON only. Leave {{ SIGNATURE }} unchanged in email closings.`,
+  generateSystem: `You write Living Security Mini Box content: warm, plain-spoken, security-awareness focused, emoji-anchored, with concrete employee actions. Match the archive examples' voice and formatting. Keep {{ SIGNATURE }} unchanged in the email closing. Return JSON only.`,
   generateFullUser: `Topic: {{topic}}
 
 Ideation notes:
 {{notes}}
 
-Outline:
+Approved outline (use it as the source of truth — expand faithfully, keep the same structure and messages):
 {{outline}}
 
 Source articles:
 {{articles}}
 
-Past Mini Box examples from our archive (match voice and style closely):
+Past Mini Box examples (match voice and style):
 {{archiveExamples}}
 
-Generate a complete Mini Box draft. Return JSON:
+Return the complete Mini Box as JSON (fill every field fully):
 {
   "welcome": { "intro": string, "contents": string, "closing": string },
   "onePager": {
@@ -96,18 +137,43 @@ export function resolveGenerationPrompts(
   };
 }
 
+/**
+ * Structured outline — mirrors the Mini Box slide sections 1:1, so the approved
+ * outline maps directly onto the deck. `topic`, `angle`, `audience`, and
+ * `gifPlan` add strategic context and per-slide GIF search intents.
+ */
 export type MiniBoxOutline = {
+  topic: string;
   angle: string;
   audience: string;
-  keyMessages: string[];
-  welcomeFocus: string;
-  onePagerHook: string;
-  onePagerStructure: string;
-  chatScenario: string;
-  habitToReinforce: string;
+  welcome: { intro: string; contents: string; closing: string };
+  onePager: {
+    greeting: string;
+    subjectLine: string;
+    bodyPart1: string;
+    callout: string;
+    bodyPart2: string;
+  };
+  chat: { message: string };
+  gifPlan: { welcome: string; onePager: string; chat: string };
 };
 
-export function outlineToContextText(outline: MiniBoxOutline | string | null | undefined) {
+/** True when the outline already carries structured slide content (new shape). */
+export function isStructuredOutline(
+  outline: MiniBoxOutline | string | null | undefined,
+): outline is MiniBoxOutline {
+  return Boolean(
+    outline &&
+      typeof outline === "object" &&
+      "welcome" in outline &&
+      "onePager" in outline &&
+      "chat" in outline,
+  );
+}
+
+export function outlineToContextText(
+  outline: MiniBoxOutline | string | null | undefined,
+) {
   if (!outline) return "(none)";
   if (typeof outline === "string") return outline.trim() || "(none)";
   return JSON.stringify(outline, null, 2);
