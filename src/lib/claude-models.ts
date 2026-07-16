@@ -64,3 +64,10 @@ export function claudeModelLabel(modelId: string): string {
     modelId
   );
 }
+
+/** Newer Opus models reject the legacy temperature parameter. */
+export function modelSupportsTemperature(modelId: string): boolean {
+  const model = modelId.toLowerCase();
+  if (model.includes("claude-opus-4-8")) return false;
+  return true;
+}

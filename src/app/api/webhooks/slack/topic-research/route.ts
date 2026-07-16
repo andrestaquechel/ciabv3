@@ -1,6 +1,5 @@
 import { after } from "next/server";
 import { runTopicResearchForMonth } from "@/lib/slack/handlers";
-import { slackPostMessage } from "@/lib/slack/api";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -42,17 +41,6 @@ export async function POST(request: Request) {
       await runTopicResearchForMonth(body);
     } catch (err) {
       console.error("Background topic research failed:", err);
-      const message =
-        err instanceof Error ? err.message : "Topic research failed unexpectedly.";
-      try {
-        await slackPostMessage({
-          channel: body.channel,
-          threadTs: body.threadTs,
-          text: `Topic research failed: ${message.slice(0, 500)}`,
-        });
-      } catch (postErr) {
-        console.error("Could not post topic research error to Slack:", postErr);
-      }
     }
   });
 

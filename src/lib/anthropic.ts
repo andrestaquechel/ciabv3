@@ -1,4 +1,4 @@
-import { resolveClaudeModel } from "@/lib/claude-models";
+import { resolveClaudeModel, modelSupportsTemperature } from "@/lib/claude-models";
 import { loadAppSettingsFromDrive } from "@/lib/box-studio-drive-data";
 
 export async function resolveAnthropicModel(
@@ -64,6 +64,16 @@ export async function anthropicText({
     ? resolveClaudeModel(model, process.env.ANTHROPIC_MODEL)
     : await resolveAnthropicModel();
 
+  const body: Record<string, unknown> = {
+    model: resolvedModel,
+    max_tokens: maxTokens,
+    system,
+    messages: [{ role: "user", content: user }],
+  };
+  if (modelSupportsTemperature(resolvedModel)) {
+    body.temperature = temperature;
+  }
+
   const res = await fetch(ANTHROPIC_API_URL, {
     method: "POST",
     headers: {
@@ -71,13 +81,7 @@ export async function anthropicText({
       "anthropic-version": "2023-06-01",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: resolvedModel,
-      max_tokens: maxTokens,
-      temperature,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -163,6 +167,27 @@ export async function anthropicVisionJson<T>({
     ? resolveClaudeModel(model, process.env.ANTHROPIC_MODEL)
     : await resolveAnthropicModel();
 
+  const body: Record<string, unknown> = {
+    model: resolvedModel,
+    max_tokens: maxTokens,
+    system: `${system}\n\nRespond with valid JSON only. No markdown fences or commentary.`,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: mediaType, data: imageBase64 },
+          },
+          { type: "text", text: userText },
+        ],
+      },
+    ],
+  };
+  if (modelSupportsTemperature(resolvedModel)) {
+    body.temperature = temperature;
+  }
+
   const res = await fetch(ANTHROPIC_API_URL, {
     method: "POST",
     headers: {
@@ -170,24 +195,7 @@ export async function anthropicVisionJson<T>({
       "anthropic-version": "2023-06-01",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: resolvedModel,
-      max_tokens: maxTokens,
-      temperature,
-      system: `${system}\n\nRespond with valid JSON only. No markdown fences or commentary.`,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: { type: "base64", media_type: mediaType, data: imageBase64 },
-            },
-            { type: "text", text: userText },
-          ],
-        },
-      ],
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
