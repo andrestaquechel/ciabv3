@@ -35,6 +35,11 @@ export const MONTH_LABELS = MONTH_NAMES.map(
   (m) => m.charAt(0).toUpperCase() + m.slice(1),
 );
 
+export type MonthDropdownOption = {
+  monthNumber: number;
+  label: string;
+};
+
 export function parseMonthInput(input: string, year = new Date().getFullYear()): {
   monthNumber: number;
   monthLabel: string;
@@ -87,6 +92,38 @@ export function monthMiniBoxTopics(
   year = new Date().getFullYear(),
 ): string[] {
   return monthEntry(calendars, monthNumber, year)?.miniBoxTopics?.filter(Boolean) || [];
+}
+
+/** Label for Slack month dropdown, e.g. "July - Emerging Threats" */
+export function monthCalendarLabel(
+  calendars: AnnualCalendarsConfig | undefined,
+  monthNumber: number,
+  boxType: "mini-box" | "ciab",
+  year = new Date().getFullYear(),
+): string {
+  const monthName = MONTH_LABELS[monthNumber - 1] || "Month";
+  const entry = monthEntry(calendars, monthNumber, year);
+  const topic =
+    boxType === "ciab"
+      ? entry?.ciabTopic?.trim()
+      : entry?.miniBoxTopics?.[0]?.trim() || entry?.ciabTopic?.trim();
+  if (!topic) return monthName;
+  const label = `${monthName} - ${topic}`;
+  return label.length > 75 ? `${label.slice(0, 72)}…` : label;
+}
+
+export function buildMonthDropdownOptions(
+  calendars: AnnualCalendarsConfig | undefined,
+  boxType: "mini-box" | "ciab",
+  year = new Date().getFullYear(),
+): MonthDropdownOption[] {
+  return MONTH_LABELS.map((_, i) => {
+    const monthNumber = i + 1;
+    return {
+      monthNumber,
+      label: monthCalendarLabel(calendars, monthNumber, boxType, year),
+    };
+  });
 }
 
 export function currentMonthCiabTopic(

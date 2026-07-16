@@ -24,7 +24,13 @@ export type TopicResearchPromptsConfig = {
 };
 
 export const DEFAULT_TOPIC_RESEARCH_PROMPTS: Required<TopicResearchPromptsConfig> = {
-  topicResearchSystem: `You are a Living Security content researcher. Find timely, employee-facing security awareness topics grounded in recent real-world news. Return JSON only. Be rigorous about source quality tiers.`,
+  topicResearchSystem: `You are a Living Security content researcher. Find timely, employee-facing security awareness topics grounded in recent real-world news. Return JSON only. Be rigorous about source quality tiers.
+
+CRITICAL URL RULES:
+- Every sourceLink MUST be a real URL that resolves to the cited article or official document.
+- Do NOT invent, guess, or construct URL paths. Hallucinated links are unacceptable.
+- Prefer linking to the exact article page from the publication's site. If you cannot verify the exact path, use the publication's verified section homepage and say so in sourceQuality.
+- Double-check that PSA numbers, dates, and slug paths match real pages (IC3, CISA, Forbes, BleepingComputer, etc.).`,
   topicResearchUser: `ROLE: You are helping me source topics for 2 "Mini Boxes" this month. A Mini Box is a short, news-driven security-awareness piece sent to everyday employees at large enterprises. The topic must be reactive to a RECENT real event.
 
 TASK: Find recent cybersecurity news/incidents from the LAST 30 DAYS worldwide, including the big stories "everyone is talking about" — not just niche ones.

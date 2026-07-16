@@ -3,6 +3,7 @@ import {
   anthropicJson,
   anthropicMissingKeyMessage,
 } from "@/lib/anthropic";
+import { resolveTopicResearchModel } from "@/lib/claude-models";
 import { currentMonthCiabTopic } from "@/lib/annual-calendar-types";
 import { loadAppSettingsFromDrive } from "@/lib/box-studio-drive-data";
 import {
@@ -12,6 +13,10 @@ import {
   type TopicResearchPromptsConfig,
   type TopicResearchResult,
 } from "@/lib/mini-box-topic-prompts";
+import {
+  validateAllTopicCandidates,
+  validateTopicCandidateUrls,
+} from "@/lib/topic-source-validation";
 
 function mockCandidates(monthlyCiabTopic?: string): TopicCandidate[] {
   const base = monthlyCiabTopic || "security awareness";
@@ -113,6 +118,100 @@ export async function loadTopicResearchPrompts(): Promise<
   }
 }
 
+async function repairBrokenTopicLinks(
+  candidates: TopicCandidate[],
+  brokenById: Map<string, string[]>,
+  model: string,
+): Promise<TopicCandidate[]> {
+  if (brokenById.size === 0) return candidates;
+
+  const toFix = candidates
+    .filter((c) => brokenById.has(c.id))
+    .map((c) => ({
+      ...c,
+      brokenUrls: brokenById.get(c.id),
+    }));
+
+  const fixed = await anthropicJson<{ candidates: TopicCandidate[] }>({
+    system: `You fix broken source URLs for Living Security Mini Box topic research. Return JSON only. Every replacement URL must be real — do not invent paths.`,
+    user: `These topic candidates have source URLs that returned 404 or failed to load. Replace ONLY sourceLink and secondarySourceLink with working URLs to the same story (or the publication's verified article page).
+
+Rules:
+- Use exact, real article URLs you are confident exist.
+- If the exact article cannot be found, use a working URL from the same publication that covers the same story, and update sourceName/sourceQuality accordingly.
+- Never fabricate IC3 PSA numbers, Forbes slugs, or BleepingComputer paths.
+
+Candidates to fix:
+${JSON.stringify(toFix, null, 2)}
+
+Return JSON: { "candidates": [ ...same ids with corrected links... ] }`,
+    temperature: 0.2,
+    maxTokens: 4096,
+    model,
+  });
+
+  const fixedMap = new Map(
+    (fixed.candidates || []).map((c) => [c.id, c] as const),
+  );
+  return candidates.map((c) => fixedMap.get(c.id) ?? c);
+}
+
+async function ensureValidTopicUrls(
+  candidates: TopicCandidate[],
+  model: string,
+): Promise<{ candidates: TopicCandidate[]; note?: string }> {
+  let current = candidates;
+  let note: string | undefined;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const brokenById = await validateAllTopicCandidates(current);
+    if (brokenById.size === 0) return { candidates: current };
+
+    const brokenList = [...brokenById.entries()]
+      .map(([id, urls]) => `#${id}: ${urls.join(", ")}`)
+      .join("; ");
+
+    console.warn(`Topic research: broken URLs (attempt ${attempt + 1}): ${brokenList}`);
+
+    current = await repairBrokenTopicLinks(current, brokenById, model);
+
+    const stillBroken = await validateAllTopicCandidates(current);
+    if (stillBroken.size === 0) {
+      note = "Some source links were auto-corrected after verification.";
+      return { candidates: current, note };
+    }
+  }
+
+  // Drop candidates whose primary link still fails; annotate survivors
+  const validated: TopicCandidate[] = [];
+  for (const c of current) {
+    const { broken } = await validateTopicCandidateUrls(c);
+    if (broken.includes(c.sourceLink)) continue;
+    validated.push({
+      ...c,
+      sourceQuality: broken.length
+        ? `${c.sourceQuality} (secondary link removed — could not verify)`
+        : c.sourceQuality,
+      secondarySourceLink: broken.includes(c.secondarySourceLink || "")
+        ? undefined
+        : c.secondarySourceLink,
+      secondarySourceName: broken.includes(c.secondarySourceLink || "")
+        ? undefined
+        : c.secondarySourceName,
+    });
+  }
+
+  note =
+    validated.length < current.length
+      ? "Some topics were removed because source URLs could not be verified."
+      : "Some source links could not be verified and were corrected or removed.";
+
+  return {
+    candidates: validated.length >= 3 ? validated : current,
+    note,
+  };
+}
+
 export async function generateTopicCandidates({
   monthlyCiabTopic: ciabOverride,
   prompts: promptOverride,
@@ -121,7 +220,13 @@ export async function generateTopicCandidates({
   monthlyCiabTopic?: string;
   prompts?: TopicResearchPromptsConfig;
   model?: string;
-} = {}): Promise<TopicResearchResult & { source: "anthropic" | "mock"; note?: string }> {
+} = {}): Promise<
+  TopicResearchResult & {
+    source: "anthropic" | "mock";
+    note?: string;
+    model?: string;
+  }
+> {
   let monthlyCiabTopic = ciabOverride;
   if (!monthlyCiabTopic) {
     try {
@@ -145,6 +250,8 @@ export async function generateTopicCandidates({
     ? resolveTopicResearchPrompts(promptOverride)
     : await loadTopicResearchPrompts();
 
+  const researchModel = resolveTopicResearchModel(model);
+
   const user = applyPromptTemplate(prompts.topicResearchUser, {
     monthlyCiabTopic: monthlyCiabTopic || "(not set — upload annual calendar in Knowledge Base or Slack)",
   });
@@ -152,15 +259,27 @@ export async function generateTopicCandidates({
   const parsed = await anthropicJson<{ candidates: TopicCandidate[] }>({
     system: prompts.topicResearchSystem,
     user,
-    temperature: 0.5,
+    temperature: 0.4,
     maxTokens: 8192,
-    model,
+    model: researchModel,
   });
 
-  const candidates = (parsed.candidates || []).slice(0, 6).map((c, i) => ({
+  let candidates = (parsed.candidates || []).slice(0, 6).map((c, i) => ({
     ...c,
     id: c.id || String(i + 1),
   }));
 
-  return { source: "anthropic", monthlyCiabTopic, candidates };
+  const { candidates: validated, note: urlNote } = await ensureValidTopicUrls(
+    candidates,
+    researchModel,
+  );
+  candidates = validated;
+
+  return {
+    source: "anthropic",
+    monthlyCiabTopic,
+    candidates,
+    model: researchModel,
+    note: urlNote,
+  };
 }

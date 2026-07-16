@@ -8,10 +8,14 @@ export type AiSectionId =
 
 export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
 
+/** Opus for topic research — higher accuracy on real news URLs */
+export const TOPIC_RESEARCH_CLAUDE_MODEL = "claude-opus-4-8";
+
 export const CLAUDE_MODEL_OPTIONS = [
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
   { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
   { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 (fast)" },
+  { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
   { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
 ] as const;
 
@@ -45,6 +49,13 @@ export function resolveClaudeModel(
     pick(envDefault) ??
     DEFAULT_CLAUDE_MODEL
   );
+}
+
+/** Topic research accepts opus 4.8 even before added to settings dropdown elsewhere */
+export function resolveTopicResearchModel(preferred?: string): string {
+  const pick = resolveClaudeModel(preferred, process.env.ANTHROPIC_TOPIC_MODEL);
+  if (pick.startsWith("claude-opus")) return pick;
+  return TOPIC_RESEARCH_CLAUDE_MODEL;
 }
 
 export function claudeModelLabel(modelId: string): string {

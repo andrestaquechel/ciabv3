@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { assertSlackSignature } from "@/lib/slack/verify";
 import { handleBlockActions } from "@/lib/slack/handlers";
 
@@ -25,15 +26,22 @@ export async function POST(request: Request) {
     });
   }
 
+  let payload: Parameters<typeof handleBlockActions>[0];
   try {
-    const payload = parseInteractionBody(
-      rawBody,
-      request.headers.get("content-type"),
-    );
-    await handleBlockActions(payload);
+    payload = parseInteractionBody(rawBody, request.headers.get("content-type"));
   } catch (err) {
-    console.error("Slack interaction error:", err);
+    console.error("Slack interaction parse error:", err);
+    return new Response("", { status: 200 });
   }
+
+  // Ack within 3s — run heavy work (topic research, etc.) after response
+  after(async () => {
+    try {
+      await handleBlockActions(payload);
+    } catch (err) {
+      console.error("Slack interaction error:", err);
+    }
+  });
 
   return new Response("", { status: 200 });
 }

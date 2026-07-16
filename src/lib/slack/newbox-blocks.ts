@@ -1,4 +1,7 @@
-import { MONTH_LABELS } from "@/lib/annual-calendar-types";
+import {
+  buildMonthDropdownOptions,
+  type AnnualCalendarsConfig,
+} from "@/lib/annual-calendar-types";
 
 export function newboxTypeBlocks(workflowId: string) {
   return [
@@ -32,15 +35,20 @@ export function newboxTypeBlocks(workflowId: string) {
 export function newboxMonthBlocks(
   workflowId: string,
   boxType: "mini-box" | "ciab",
+  calendars?: AnnualCalendarsConfig,
   defaultMonth = new Date().getMonth() + 1,
+  year = new Date().getFullYear(),
 ) {
   const label = boxType === "ciab" ? "CIAB" : "Mini Box";
+  const options = buildMonthDropdownOptions(calendars, boxType, year);
+  const defaultOption = options[defaultMonth - 1];
+
   return [
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*${label}* — Which month is this for? Pick from the list or type \`/newbox ${boxType} july\`.`,
+        text: `*${label}* — Which month is this for? Each option shows the calendar topic.`,
       },
     },
     {
@@ -52,12 +60,12 @@ export function newboxMonthBlocks(
           action_id: `newbox_month:${workflowId}`,
           placeholder: { type: "plain_text", text: "Select month" },
           initial_option: {
-            text: { type: "plain_text", text: MONTH_LABELS[defaultMonth - 1] },
+            text: { type: "plain_text", text: defaultOption.label },
             value: String(defaultMonth),
           },
-          options: MONTH_LABELS.map((name, i) => ({
-            text: { type: "plain_text", text: name },
-            value: String(i + 1),
+          options: options.map((o) => ({
+            text: { type: "plain_text", text: o.label },
+            value: String(o.monthNumber),
           })),
         },
       ],

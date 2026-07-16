@@ -35,7 +35,7 @@ import {
   findSlackWorkflowIdByThread,
   loadAppSettingsFromDrive,
 } from "@/lib/box-studio-drive-data";
-import { monthCiabTopic, MONTH_LABELS } from "@/lib/annual-calendar-types";
+import { monthCiabTopic, monthCalendarLabel, MONTH_LABELS } from "@/lib/annual-calendar-types";
 import { resolveSlackReview } from "@/lib/slack/review-settings";
 
 type SlackFile = { id: string; mimetype?: string; filetype?: string };
@@ -613,10 +613,23 @@ export async function handleBlockActions(payload: {
     const monthValue = action.selected_option?.value || action.value;
     const monthNumber = Number(monthValue);
     if (!workflowId || !monthNumber || monthNumber < 1 || monthNumber > 12) return;
+
+    let monthLabel = MONTH_LABELS[monthNumber - 1];
+    try {
+      const settings = await loadAppSettingsFromDrive();
+      monthLabel = monthCalendarLabel(
+        settings?.annualCalendars,
+        monthNumber,
+        "mini-box",
+      );
+    } catch {
+      // use plain month name
+    }
+
     await handleNewboxMonthSelect({
       workflowId,
       monthNumber,
-      monthLabel: MONTH_LABELS[monthNumber - 1],
+      monthLabel,
       year: new Date().getFullYear(),
       channel,
       threadTs,

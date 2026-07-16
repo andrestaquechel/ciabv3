@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import {
+  monthCalendarLabel,
   monthCiabTopic,
   monthMiniBoxTopics,
   parseMonthInput,
@@ -35,6 +36,15 @@ async function persistNewWorkflow(
     if (threadTs) await registerSlackWorkflowThread(channel, threadTs, workflow.id);
   } catch {
     // continue — buttons may fail without Drive
+  }
+}
+
+async function loadAnnualCalendars() {
+  try {
+    const settings = await loadAppSettingsFromDrive();
+    return settings?.annualCalendars;
+  } catch {
+    return undefined;
   }
 }
 
@@ -125,10 +135,11 @@ export async function buildNewboxWizardResponse({
   }
 
   if (parsed?.boxType) {
+    const calendars = await loadAnnualCalendars();
     return {
       workflowId,
       text: `New ${parsed.boxType === "ciab" ? "CIAB" : "Mini Box"} — select month`,
-      blocks: newboxMonthBlocks(workflowId, parsed.boxType),
+      blocks: newboxMonthBlocks(workflowId, parsed.boxType, calendars, undefined, year),
     };
   }
 
@@ -191,11 +202,12 @@ export async function handleNewboxTypeSelect({
   workflow.status = "newbox_setup";
   await persist(workflow);
 
+  const calendars = await loadAnnualCalendars();
   await slackPostMessage({
     channel,
     threadTs,
     text: `${boxType === "ciab" ? "CIAB" : "Mini Box"} selected — pick a month`,
-    blocks: newboxMonthBlocks(workflowId, boxType),
+    blocks: newboxMonthBlocks(workflowId, boxType, calendars),
   });
 }
 
@@ -230,6 +242,11 @@ export async function handleNewboxMonthSelect({
   workflow.boxType = boxType || workflow.boxType;
   await persist(workflow);
 
+  const calendars = await loadAnnualCalendars();
+  const displayMonthLabel =
+    monthLabel ||
+    monthCalendarLabel(calendars, monthNumber, workflow.boxType, year);
+
   if (workflow.boxType === "ciab") {
     const settings = await loadAppSettingsFromDrive();
     const ciabTopic = monthCiabTopic(settings?.annualCalendars, monthNumber, year);
@@ -241,8 +258,8 @@ export async function handleNewboxMonthSelect({
     await slackPostMessage({
       channel,
       threadTs,
-      text: `CIAB topic for ${monthLabel}`,
-      blocks: ciabMonthReadyBlocks(monthLabel, ciabTopic, miniTopics),
+      text: `CIAB topic for ${displayMonthLabel}`,
+      blocks: ciabMonthReadyBlocks(displayMonthLabel, ciabTopic, miniTopics),
     });
     return;
   }
@@ -254,7 +271,7 @@ export async function handleNewboxMonthSelect({
     userId,
     workflowId,
     monthNumber,
-    monthLabel,
+    monthLabel: displayMonthLabel,
     year,
   });
 }
