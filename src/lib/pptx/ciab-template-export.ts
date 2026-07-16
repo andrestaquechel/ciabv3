@@ -47,6 +47,19 @@ function joinLines(lines: (string | undefined)[]): string {
   return lines.filter((l) => l !== undefined).join("\n").trim();
 }
 
+/**
+ * Split the welcome note the way the template lays it out: the greeting +
+ * framing go in the top shape (above the GIF), and the "In this month's box you
+ * will find…" list + sign-off go in the lower shape (below the caption). This
+ * keeps the top shape short so the welcome GIF has room.
+ */
+function splitWelcome(body: string): [string, string] {
+  const lines = body.split("\n");
+  const idx = lines.findIndex((l) => /in this[\s\S]*box[\s\S]*(you|find)|you will find/i.test(l));
+  if (idx <= 0) return [body, ""];
+  return [lines.slice(0, idx).join("\n").trim(), lines.slice(idx).join("\n").trim()];
+}
+
 function buildEdits(content: CiabGeneratedContent): Record<number, Edit[]> {
   const edits: Record<number, Edit[]> = {};
   const add = (slide: number, shape: number, text: string) => {
@@ -55,14 +68,16 @@ function buildEdits(content: CiabGeneratedContent): Record<number, Edit[]> {
 
   add(1, 0, content.topic);
 
-  add(2, 1, content.welcome.body);
-  add(2, 2, "");
+  const [welcomeIntro, welcomeContents] = splitWelcome(content.welcome.body);
+  add(2, 1, welcomeIntro);
+  add(2, 2, welcomeContents);
 
   const blogSectionText = (i: number) => {
     const s = content.blog.sections[i];
     if (!s) return "";
     return joinLines([s.heading, "", s.body, "", yourMoveLine("Your Move:", s.yourMove)]);
   };
+  add(3, 2, content.blog.title || content.topic); // blog sub-title (replaces leftover example heading)
   add(3, 1, content.blog.intro);
   add(3, 4, blogSectionText(0));
   add(4, 0, blogSectionText(1));
@@ -162,7 +177,7 @@ function findCaptionShape(slideXml: string): string | null {
 }
 
 const GIF_GAP = 110000;
-const GIF_MIN_H = 760000; // ~0.8in — never smaller than this
+const GIF_MIN_H = 500000; // ~0.55in — below this, skip the GIF instead of shrinking
 const GIF_MAX_H = 2050000; // ~2.1in — never taller than this
 const GIF_MAX_W = 3500000; // ~3.6in
 const GIF_TOP_LIMIT = 1300000; // keep clear of the red page header
@@ -182,20 +197,21 @@ function geomTextShapes(slideXml: string): Array<{ xml: string; box: Geom }> {
   return out;
 }
 
-/** Rough rendered height (EMU) of a shape's current text at its box width. */
+/** Rough rendered height (EMU) of a shape's current text at its box width.
+ *  Deliberately CONSERVATIVE (over-estimates) so the GIF is pushed safely below
+ *  the copy and shrinks to fit rather than ever overlapping it. */
 function estimateTextHeight(shapeXml: string, widthEMU: number): number {
   const szMatch = shapeXml.match(/sz="(\d+)"/);
   const pt = (szMatch ? Number(szMatch[1]) : 1100) / 100;
-  // Bias slightly toward over-estimating height so the GIF never rides up into
-  // the copy (taller lines, fewer chars per line).
-  const lineH = 1.36 * pt * EMU_PER_PT;
-  const charW = 0.58 * pt * EMU_PER_PT;
-  const cpl = Math.max(10, Math.floor(widthEMU / charW));
+  const lineH = 1.38 * pt * EMU_PER_PT; // slightly generous line height
+  const charW = 0.6 * pt * EMU_PER_PT; // slightly wide chars → err toward more lines
+  const cpl = Math.max(8, Math.floor(widthEMU / charW));
   const paras = shapeXml.match(/<a:p>[\s\S]*?<\/a:p>/g) || [];
-  let lines = 0;
+  let lines = 0.4; // base padding
   for (const p of paras) {
     const t = [...p.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join("").replace(/\s+/g, " ").trim();
-    lines += t === "" ? 0.6 : Math.max(1, Math.ceil([...t].length / cpl));
+    // Each paragraph is at least one line; blank paragraphs still take vertical space.
+    lines += t === "" ? 0.85 : Math.max(1, Math.ceil([...t].length / cpl));
   }
   return Math.round(lines * lineH);
 }
@@ -205,7 +221,7 @@ function estimateTextHeight(shapeXml: string, widthEMU: number): number {
  * above it, so it never lands on top of the copy. Preserves aspect, centers on
  * the caption, and clamps to sane min/max.
  */
-function computeGifBox(slideXml: string, captionXml: string, cap: Geom, gifW: number, gifH: number): Geom {
+function computeGifBox(slideXml: string, captionXml: string, cap: Geom, gifW: number, gifH: number): Geom | null {
   const aspect = gifH / gifW || 0.5625;
   const capCenterX = cap.x + cap.cx / 2;
   const capTop = cap.y;
@@ -217,13 +233,17 @@ function computeGifBox(slideXml: string, captionXml: string, cap: Geom, gifW: nu
     const horizOverlap = !(s.box.x + s.box.cx < cap.x - 250000 || s.box.x > cap.x + cap.cx + 250000);
     if (!horizOverlap) continue;
     if (s.box.y >= capTop) continue; // not above the caption
-    const bottom = s.box.y + Math.min(estimateTextHeight(s.xml, s.box.cx), s.box.y + s.box.cy);
+    const bottom = s.box.y + estimateTextHeight(s.xml, s.box.cx);
     aboveBottom = Math.max(aboveBottom, Math.min(bottom, capTop));
   }
 
   const bottomLimit = capTop - GIF_GAP;
   const availH = bottomLimit - (aboveBottom + GIF_GAP);
-  let cy = Math.max(GIF_MIN_H, Math.min(availH, GIF_MAX_H));
+  // Not enough clear space between the copy and the caption — skip the GIF
+  // entirely rather than lay it over the words.
+  if (availH < GIF_MIN_H) return null;
+
+  let cy = Math.min(availH, GIF_MAX_H);
   let cx = Math.round(cy / aspect);
   if (cx > GIF_MAX_W) {
     cx = GIF_MAX_W;
@@ -293,6 +313,12 @@ async function injectGifs(zip: JSZip, gifs: Partial<CiabGifs> | undefined): Prom
     const capBox = caption ? readOffExt(caption) : null;
     if (!caption || !capBox) continue;
 
+    // Geometry first: fit the GIF into the gap between the caption and the text
+    // above it. If there is no clear space, skip the GIF rather than cover copy.
+    const { w, h } = gifDimensions(buf);
+    const box = computeGifBox(slideXml, caption, capBox, w, h);
+    if (!box) continue;
+
     // Media + relationship
     const mediaName = `ciab-gif-slide${slide}.gif`;
     zip.file(`ppt/media/${mediaName}`, buf);
@@ -311,11 +337,6 @@ async function injectGifs(zip: JSZip, gifs: Partial<CiabGifs> | undefined): Prom
         (_m, pre, post) => `${pre}${gifUrl.replace(/&/g, "&amp;")}${post}`,
       );
     }
-
-    // Geometry: fit the GIF into the gap between the caption and the text above
-    // it so it never overlaps the copy.
-    const { w, h } = gifDimensions(buf);
-    const box = computeGifBox(slideXml, caption, capBox, w, h);
 
     const pic = buildPicXml(9000 + slide, relId, `CIAB GIF ${slide}`, box);
     slideXml = slideXml.replace(/<\/p:spTree>/, `${pic}</p:spTree>`);
