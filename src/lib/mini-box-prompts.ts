@@ -34,7 +34,7 @@ FIXED CONVENTIONS (follow exactly):
 - welcome.contents opens with the literal line "In this topical mini box, you'll find:" then briefly describes the one-pager and the chat message as the two included assets.
 - onePager.greeting is "Hi, Team!" or "Hey, Team!".
 - onePager.subjectLine = an emoji + a punchy Title Case headline (this doubles as the email subject).
-- onePager.bodyPart1 opens with the real, recent hook and references a credible source.
+- onePager.bodyPart1 opens with the real, recent hook and cites its primary source BY NAME as a markdown link — e.g. According to [Fortune](https://fortune.com/the-article-url), … — using the real article URL from the provided source articles. At least one such [publication name](article url) markdown link MUST appear in the box (bodyPart1 is the natural place); the deck renders these as clickable hyperlinks. Never print a bare URL and never invent a URL — only link to a source article URL you were given.
 - onePager.bodyPart2 continues the message, includes a scannable list of ~5 concrete actions employees can take, and ENDS with a sign-off line (e.g. "Stay safe out there,") followed by the literal token {{ SIGNATURE }} on its own line. Never replace {{ SIGNATURE }}.
 - chat.message = an emoji-opened scenario dropping the reader into a relatable moment, a question, A/B/C/D options (each ending with a reaction emoji, exactly one clearly-correct "pause / verify / ask security" answer), the call to action "Reply in this thread with your answer! 👇", and an italic "Hint:" line tying back to the news.
 
@@ -63,7 +63,7 @@ Write the COMPLETE Mini Box content as JSON with exactly this shape. Fill every 
   "onePager": {
     "greeting": "Hi, Team! (or Hey, Team!)",
     "subjectLine": "emoji + Title Case headline",
-    "bodyPart1": "opening hook + what happened, referencing a credible source",
+    "bodyPart1": "opening hook + what happened, citing the primary source by name as a markdown link [Publication](real article URL) at least once",
     "callout": "a short highlighted takeaway or definition for the sidebar",
     "bodyPart2": "continuation + a scannable list of ~5 concrete actions, ending with a sign-off line and then {{ SIGNATURE }} on its own line"
   },
@@ -76,7 +76,7 @@ Write the COMPLETE Mini Box content as JSON with exactly this shape. Fill every 
     "chat": "2-4 word visual search intent that literally depicts the chat scenario"
   }
 }`,
-  generateSystem: `You write Living Security Mini Box content: warm, plain-spoken, security-awareness focused, emoji-anchored, with concrete employee actions. Match the archive examples' voice and formatting. Keep {{ SIGNATURE }} unchanged in the email closing. Return JSON only.`,
+  generateSystem: `You write Living Security Mini Box content: warm, plain-spoken, security-awareness focused, emoji-anchored, with concrete employee actions. Match the archive examples' voice and formatting. Keep {{ SIGNATURE }} unchanged in the email closing. Cite the primary source by name as a markdown link [Publication](real article URL) at least once — the deck renders these as clickable hyperlinks; never print a bare or invented URL. Return JSON only.`,
   generateFullUser: `Topic: {{topic}}
 
 Ideation notes:
