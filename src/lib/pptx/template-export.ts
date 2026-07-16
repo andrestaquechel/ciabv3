@@ -534,13 +534,33 @@ export async function buildMiniBoxFromTemplate(
   );
 }
 
-export function pptxFilename(doc: MiniBoxDocument) {
-  const base = (doc.title || doc.topic || "Mini-Box")
-    .replace(/[^\w\s-]/g, "")
+/**
+ * Standardized Mini Box name: "MM.YY Mini Box - Title" (e.g.
+ * "04.26 Mini Box - Internet of Things (IoT)"). Falls back to
+ * "Mini Box - Title" when the month/year aren't known. Used for both the
+ * Google Slides file and the downloadable .pptx.
+ */
+export function miniBoxDisplayName(
+  title: string,
+  month?: number,
+  year?: number,
+): string {
+  const t = (title || "").trim() || "Untitled";
+  if (month && year) {
+    const mm = String(month).padStart(2, "0");
+    const yy = String(((year % 100) + 100) % 100).padStart(2, "0");
+    return `${mm}.${yy} Mini Box - ${t}`;
+  }
+  return `Mini Box - ${t}`;
+}
+
+export function pptxFilename(doc: MiniBoxDocument, month?: number, year?: number) {
+  const name = miniBoxDisplayName(doc.title || doc.topic || "", month, year)
+    .replace(/[\\/:*?"<>|]/g, "") // strip characters illegal in filenames
+    .replace(/\s+/g, " ")
     .trim()
-    .replace(/\s+/g, "-")
-    .slice(0, 60);
-  return `Mini-Box-${base || "Untitled"}.pptx`;
+    .slice(0, 120);
+  return `${name}.pptx`;
 }
 
 /** Extract slide text blocks for template-faithful preview */
