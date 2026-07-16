@@ -46,7 +46,21 @@ type AnthropicMessageParams = {
   temperature?: number;
   maxTokens?: number;
   model?: string;
+  /** Enable Anthropic's server-side web_search tool so the model grounds its
+   *  answer in real, current pages instead of recalling URLs from training. */
+  webSearch?: boolean;
+  /** Max number of web searches the model may run for one request. */
+  webSearchMaxUses?: number;
 };
+
+/** Anthropic server-side web search tool (generally available). */
+function webSearchTool(maxUses: number) {
+  return {
+    type: "web_search_20250305",
+    name: "web_search",
+    max_uses: maxUses,
+  };
+}
 
 export async function anthropicText({
   system,
@@ -54,6 +68,8 @@ export async function anthropicText({
   temperature = 0.7,
   maxTokens = 4096,
   model,
+  webSearch = false,
+  webSearchMaxUses = 5,
 }: AnthropicMessageParams): Promise<string> {
   const apiKey = getAnthropicApiKey();
   if (!apiKey) {
@@ -72,6 +88,9 @@ export async function anthropicText({
   };
   if (modelSupportsTemperature(resolvedModel)) {
     body.temperature = temperature;
+  }
+  if (webSearch) {
+    body.tools = [webSearchTool(webSearchMaxUses)];
   }
 
   const res = await fetch(ANTHROPIC_API_URL, {
@@ -109,8 +128,20 @@ export async function anthropicText({
 export function parseJsonFromModelText<T>(text: string): T {
   const trimmed = text.trim();
   const fenced =
-    trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1] ?? trimmed;
-  return JSON.parse(fenced) as T;
+    trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1] ?? trimmed;
+
+  try {
+    return JSON.parse(fenced) as T;
+  } catch {
+    // Web-search / tool responses can wrap the JSON in prose or citations.
+    // Fall back to the outermost object or array in the text.
+    const start = fenced.search(/[[{]/);
+    const end = Math.max(fenced.lastIndexOf("}"), fenced.lastIndexOf("]"));
+    if (start >= 0 && end > start) {
+      return JSON.parse(fenced.slice(start, end + 1)) as T;
+    }
+    throw new Error("Model response was not valid JSON.");
+  }
 }
 
 export async function anthropicJson<T>(
