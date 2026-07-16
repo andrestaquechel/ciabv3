@@ -240,12 +240,11 @@ function replaceShapeText(
 // --- dynamic GIF layout ---------------------------------------------------
 //
 // The content slides stack vertically: [text above] → [GIF] → ["Via Giphy"] →
-// (sometimes) [text below]. The template fixes those positions for the
-// reference deck, so longer generated copy overflows onto the GIF. When (and
-// only when) the text above would run into the GIF, we slide the GIF down to
-// clear it, shrink the GIF (kept centered, aspect preserved) if the remaining
-// space is tight, then restack the caption and any below-text. Content that
-// already fits leaves the pristine template layout untouched.
+// (sometimes) [text below]. We measure the rendered height of the text above
+// the GIF and snug the GIF right under it — moving it up to close the gap when
+// the copy is short, or down to clear it when the copy is long — shrinking the
+// GIF (kept centered, aspect preserved) only if the remaining space is tight,
+// then restacking the caption and any below-text.
 
 const SLIDE_H_EMU = 10058400;
 const GIF_BOTTOM_MARGIN = 260000;
@@ -321,15 +320,13 @@ function layoutGifSlide(xml: string, cfg: GifLayout): string {
   if (!aOff || !pOff || !pExt || !cExt) return xml;
 
   const aboveBottom = aOff.y + estimateShapeHeightEMU(above);
-  const origTop = pOff.y;
   const origH = pExt.cy;
   const origW = pExt.cx;
   const centerX = pOff.x + origW / 2;
 
-  // Only intervene when the text above actually runs into the GIF. Otherwise
-  // leave the pristine template layout completely untouched (no move, no shrink).
-  if (aboveBottom + GIF_GAP <= origTop) return xml;
-
+  // Snug the GIF right under the text above it — moving it UP to close the gap
+  // when the copy is short, or DOWN to clear it when the copy is long. This
+  // keeps the deck tight regardless of how much the generated content varies.
   const newTop = Math.round(aboveBottom + GIF_GAP);
 
   const belowH = below ? estimateShapeHeightEMU(below) : 0;
@@ -491,8 +488,8 @@ export async function buildMiniBoxFromTemplate(
     zip.file(slidePath, xml);
   }
 
-  // Content slides: whiten the red-band title placeholders (header + subject)
-  // and grow overflow-prone body boxes so the preview matches PowerPoint.
+  // Content slides: whiten the red-band title placeholders (header + subject),
+  // grow overflow-prone body boxes, then lay out the GIF around the final text.
   for (const slideNum of [2, 4, 5, 7]) {
     const slidePath = `ppt/slides/slide${slideNum}.xml`;
     const file = zip.file(slidePath);
