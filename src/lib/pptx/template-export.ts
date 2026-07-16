@@ -192,7 +192,7 @@ function setParagraphText(
  * place they otherwise land in the middle of shorter content, producing huge
  * gaps and pushing text over the slide's GIF.
  */
-function replaceShapeText(
+export function replaceShapeText(
   slideXml: string,
   shapeIndex: number,
   newText: string,
