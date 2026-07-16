@@ -87,7 +87,13 @@ Return JSON: { "sections": { "welcome": {...}, "onePager": {...}, "chat": {...} 
   const updatedDraft: GeneratedBoxDraft = {
     ...draft,
     sections: revised.sections,
-    gifs: draft.gifs ?? (await pickMiniBoxGifs(draft.topic)),
+    gifs:
+      draft.gifs ??
+      (await pickMiniBoxGifs(draft.topic, {
+        welcome: revised.sections.welcome.intro,
+        onePager: `${revised.sections.onePager.subjectLine} ${revised.sections.onePager.bodyPart1}`,
+        chat: revised.sections.chat.message,
+      })),
   };
 
   await saveGeneratedDraftToDrive(updatedDraft);
