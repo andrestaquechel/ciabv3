@@ -164,7 +164,7 @@ async function ensureValidTopicUrls(
   let current = candidates;
   let note: string | undefined;
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 1; attempt++) {
     const brokenById = await validateAllTopicCandidates(current);
     if (brokenById.size === 0) return { candidates: current };
 

@@ -342,6 +342,7 @@ export async function runTopicResearchForMonth({
   monthNumber,
   monthLabel,
   year = new Date().getFullYear(),
+  skipStatusMessage = false,
 }: {
   channel: string;
   threadTs?: string;
@@ -350,12 +351,15 @@ export async function runTopicResearchForMonth({
   monthNumber: number;
   monthLabel: string;
   year?: number;
+  skipStatusMessage?: boolean;
 }) {
-  await slackPostMessage({
-    channel,
-    threadTs,
-    text: `Researching 6 Mini Box topics for *${monthLabel}* (this may take a minute)…`,
-  });
+  if (!skipStatusMessage) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `Researching 6 Mini Box topics for *${monthLabel}* (this may take a minute)…`,
+    });
+  }
 
   let monthlyCiabTopic: string | undefined;
   try {
@@ -365,7 +369,28 @@ export async function runTopicResearchForMonth({
     monthlyCiabTopic = undefined;
   }
 
-  const result = await generateTopicCandidates({ monthlyCiabTopic });
+  let result;
+  try {
+    result = await generateTopicCandidates({ monthlyCiabTopic });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Topic research failed.";
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `Topic research failed: ${message.slice(0, 500)}`,
+    });
+    throw err;
+  }
+
+  if (!result.candidates?.length) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: "Topic research returned no candidates. Try again or check ANTHROPIC_API_KEY on Vercel.",
+    });
+    return;
+  }
+
   const workflowId = existingWorkflowId || randomUUID();
   const now = new Date().toISOString();
 
@@ -402,6 +427,13 @@ export async function runTopicResearchForMonth({
       workflow.monthlyCiabTopic,
       monthLabel,
     ),
+  }).catch(async (err) => {
+    console.error("Slack topic table post failed:", err);
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `Mini Box topics for ${monthLabel} ready — open Box Studio or retry; Slack could not render the full table (${err instanceof Error ? err.message : "block error"}).`,
+    });
   });
 
   if (result.note || result.model) {

@@ -6,7 +6,7 @@ export type UrlCheckResult = {
   status?: number;
 };
 
-const CHECK_TIMEOUT_MS = 8000;
+const CHECK_TIMEOUT_MS = 4500;
 
 export async function checkSourceUrl(url: string): Promise<UrlCheckResult> {
   const trimmed = url?.trim();

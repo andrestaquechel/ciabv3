@@ -3,6 +3,7 @@ import { assertSlackSignature } from "@/lib/slack/verify";
 import { handleBlockActions } from "@/lib/slack/handlers";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 function parseInteractionBody(rawBody: string, contentType: string | null) {
   if (contentType?.includes("application/x-www-form-urlencoded")) {

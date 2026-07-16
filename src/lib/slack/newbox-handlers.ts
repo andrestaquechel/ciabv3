@@ -464,9 +464,20 @@ export async function buildNewboxWizardResponse({
   };
 }
 
-async function runTopicResearchAsync(args: Parameters<typeof import("@/lib/slack/handlers").runTopicResearchForMonth>[0]) {
-  const { runTopicResearchForMonth } = await import("@/lib/slack/handlers");
-  await runTopicResearchForMonth(args);
+async function runTopicResearchAsync(
+  args: Parameters<typeof import("@/lib/slack/topic-research-job").dispatchTopicResearchJob>[0],
+) {
+  const { dispatchTopicResearchJob } = await import("@/lib/slack/topic-research-job");
+  try {
+    await dispatchTopicResearchJob(args);
+  } catch (err) {
+    const { slackPostMessage } = await import("@/lib/slack/api");
+    await slackPostMessage({
+      channel: args.channel,
+      threadTs: args.threadTs,
+      text: `Could not start topic research: ${err instanceof Error ? err.message : "queue failed"}`,
+    });
+  }
 }
 
 export async function startNewboxWizard({
@@ -587,16 +598,32 @@ export async function handleNewboxMonthSelect({
     return;
   }
 
-  const { runTopicResearchForMonth } = await import("@/lib/slack/handlers");
-  await runTopicResearchForMonth({
+  const { dispatchTopicResearchJob } = await import("@/lib/slack/topic-research-job");
+
+  await slackPostMessage({
     channel,
     threadTs,
-    userId,
-    workflowId,
-    monthNumber,
-    monthLabel: displayMonthLabel,
-    year,
+    text: `Researching 6 Mini Box topics for *${displayMonthLabel}* (this may take a minute)…`,
   });
+
+  try {
+    await dispatchTopicResearchJob({
+      channel,
+      threadTs,
+      userId,
+      workflowId,
+      monthNumber,
+      monthLabel: displayMonthLabel,
+      year,
+      skipStatusMessage: true,
+    });
+  } catch (err) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `Could not start topic research: ${err instanceof Error ? err.message : "queue failed"}`,
+    });
+  }
 }
 
 async function loadOrStubWorkflow(
