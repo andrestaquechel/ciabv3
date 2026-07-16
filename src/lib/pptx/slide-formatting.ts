@@ -26,7 +26,6 @@ const DIVIDER_TITLE_LST_STYLE =
 
 const DIVIDER_TITLE_RUN_PR = `<a:rPr lang="en" sz="5600">${FILL_BLACK}${FONT_INTER}</a:rPr>`;
 const DIVIDER_END_PARA_RPR = `<a:endParaRPr sz="5600">${FILL_BLACK}${FONT_INTER}</a:endParaRPr>`;
-const COVER_TOPIC_RUN_PR = `<a:rPr lang="en" sz="2600">${FILL_ACCENT1}${FONT_INTER}</a:rPr>`;
 const COVER_SUBTITLE_RUN_PR = `<a:rPr lang="en" sz="1800" u="sng">${FONT_INTER_MEDIUM}</a:rPr>`;
 
 /** Font size (hundredths of a pt) for the red-band page header. The template
@@ -76,14 +75,49 @@ function fixDividerSlideTitleFormatting(slideXml: string): string {
     .replace(/<a:endParaRPr\/>/, DIVIDER_END_PARA_RPR);
 }
 
+/** Largest topic-title size (of a descending set) whose wrapped height fits the
+ *  space above the table-of-contents, so a long cover title never spills into
+ *  it. The 0.64 char-width factor errs toward more lines (the large display
+ *  font runs wider than body text) so we shrink rather than overflow. */
+function fitCoverTopicSz(text: string, widthEMU: number, availEMU: number): number {
+  const len = [...(text || "")].length || 1;
+  for (const sz of [2600, 2400, 2200, 2000, 1800, 1600, 1400]) {
+    const pt = sz / 100;
+    const cpl = Math.max(8, Math.floor(widthEMU / (0.64 * pt * 12700)));
+    const lines = Math.max(1, Math.ceil(len / cpl));
+    if (lines * 1.25 * pt * 12700 <= availEMU) return sz;
+  }
+  return 1400;
+}
+
+function coverTopicRunPr(sz: number): string {
+  return `<a:rPr lang="en" sz="${sz}">${FILL_ACCENT1}${FONT_INTER}</a:rPr>`;
+}
+
 function fixCoverSlide(slideXml: string): string {
   let xml = slideXml;
   const shapes = getTextShapes(xml);
 
   if (shapes[0]) {
     let shape = shapes[0];
-    shape = shape.replace(/<a:r><a:rPr lang="en"\/>/, `<a:r>${COVER_TOPIC_RUN_PR}`);
-    shape = shape.replace(/<a:endParaRPr\/>/, `<a:endParaRPr sz="2600"/>`);
+    // Auto-fit the topic title so a long headline doesn't overlap the TOC below.
+    const topic = [...shape.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join("");
+    const titleOff = shape.match(/<a:off x="-?\d+" y="(-?\d+)"\/>/);
+    const titleExt = shape.match(/<a:ext cx="(\d+)" cy="\d+"\/>/);
+    const tocOff = shapes[1]?.match(/<a:off x="-?\d+" y="(-?\d+)"\/>/);
+    const titleTop = titleOff ? Number(titleOff[1]) : 4724325;
+    const tocTop = tocOff ? Number(tocOff[1]) : titleTop + 900925;
+    const width = titleExt ? Number(titleExt[1]) : 6149700;
+    const avail = Math.max(400000, tocTop - titleTop - 40000);
+    const sz = fitCoverTopicSz(topic, width, avail);
+    if (/\bsz="\d+"/.test(shape)) {
+      // Template run already carries a size (and accent styling) — just resize.
+      shape = shape.replace(/\bsz="\d+"/g, `sz="${sz}"`);
+    } else {
+      shape = shape
+        .replace(/<a:r><a:rPr lang="en"\/>/, `<a:r>${coverTopicRunPr(sz)}`)
+        .replace(/<a:endParaRPr\/>/, `<a:endParaRPr sz="${sz}"/>`);
+    }
     xml = replaceTextShape(xml, 0, shape);
   }
 

@@ -1,4 +1,4 @@
-import { buildMiniBoxFromTemplate } from "@/lib/pptx/template-export";
+import { buildMiniBoxFromTemplate, miniBoxDisplayName } from "@/lib/pptx/template-export";
 import {
   loadAppSettingsFromDrive,
   loadGeneratedDraftFromDrive,
@@ -58,7 +58,7 @@ export async function startCsmReview({
   try {
     const uploaded = await uploadPptxAsGoogleSlides({
       pptxBuffer: Buffer.from(pptxBuffer),
-      name: `Mini Box - ${doc.topic}`,
+      name: miniBoxDisplayName(doc.topic, workflow.targetMonth, workflow.targetYear),
     });
     slidesLink = uploaded.webViewLink;
   } catch (err) {
