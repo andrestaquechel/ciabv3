@@ -109,11 +109,46 @@ function withEmphasis(rPr: string, italic: boolean, bold: boolean): string {
   return rPr.replace(/^<a:rPr\b([^>]*?)(\/?)>/, (_m, attrs, slash) => `<a:rPr${attrs}${add}${slash}>`);
 }
 
+function plainRun(text: string, rPr: string): string {
+  return `<a:r>${rPr}<a:t>${escapeXml(text)}</a:t></a:r>`;
+}
+
+/** Turn a run's <a:rPr> into a hyperlink rPr: underline + theme hlink color +
+ *  an hlinkClick pointing at a placeholder r:id resolved later against the rels. */
+function hyperlinkRPr(baseRPr: string, id: number): string {
+  let s = baseRPr;
+  if (/\/>\s*$/.test(s)) s = s.replace(/\/>\s*$/, "></a:rPr>");
+  s = s.replace(/^<a:rPr\b([^>]*)>/, (mm, attrs) => (/\bu=/.test(attrs) ? mm : `<a:rPr${attrs} u="sng">`));
+  const hlinkFill = '<a:solidFill><a:schemeClr val="hlink"/></a:solidFill>';
+  if (/<a:solidFill>[\s\S]*?<\/a:solidFill>/.test(s)) s = s.replace(/<a:solidFill>[\s\S]*?<\/a:solidFill>/, hlinkFill);
+  else s = s.replace(/^(<a:rPr\b[^>]*>)/, `$1${hlinkFill}`);
+  return s.replace(/<\/a:rPr>\s*$/, `<a:hlinkClick r:id="__HL_${id}__"/></a:rPr>`);
+}
+
+/** Build a paragraph's runs, rendering markdown links [text](url) as real
+ *  hyperlink runs (their urls pushed to linkSink for rels resolution). */
+function buildParagraphRuns(line: string, rPr: string, linkSink: { url: string }[]): string {
+  const re = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+  let idx = 0;
+  let out = "";
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) {
+    if (m.index > idx) out += plainRun(line.slice(idx, m.index), rPr);
+    const id = linkSink.length;
+    linkSink.push({ url: m[2] });
+    out += `<a:r>${hyperlinkRPr(rPr, id)}<a:t>${escapeXml(m[1])}</a:t></a:r>`;
+    idx = m.index + m[0].length;
+  }
+  if (idx < line.length) out += plainRun(line.slice(idx), rPr);
+  return out || plainRun(line, rPr);
+}
+
 /** Rebuild a single paragraph, keeping its pPr and first-run styling. */
 function setParagraphText(
   paragraph: string,
   line: string,
   fallbackRPr: string,
+  linkSink: { url: string }[] = [],
 ): string {
   const pPr = paragraphProps(paragraph);
   if (line.trim() === "") {
@@ -121,7 +156,7 @@ function setParagraphText(
   }
   const { text, italic, bold } = parseEmphasis(line);
   const rPr = withEmphasis(firstRunProps(paragraph) || fallbackRPr, italic, bold);
-  return `<a:p>${pPr}<a:r>${rPr}<a:t>${escapeXml(text)}</a:t></a:r></a:p>`;
+  return `<a:p>${pPr}${buildParagraphRuns(text, rPr, linkSink)}</a:p>`;
 }
 
 /**
@@ -143,6 +178,7 @@ function replaceShapeText(
   shapeIndex: number,
   newText: string,
   slideNum?: number,
+  linkSink: { url: string }[] = [],
 ): string {
   const shapes = getTextShapes(slideXml);
   const shape = shapes[shapeIndex];
@@ -185,7 +221,7 @@ function replaceShapeText(
       contentParagraphs[contentParagraphs.length - 1] ??
       primaryTemplate;
     ci++;
-    rebuilt.push(setParagraphText(template, raw, shapeRPr));
+    rebuilt.push(setParagraphText(template, raw, shapeRPr, linkSink));
   }
   if (!rebuilt.length) rebuilt.push(makeSpacer());
 
@@ -385,6 +421,33 @@ function buildEdits(doc: MiniBoxDocument): ShapeEdit[] {
   return edits;
 }
 
+/** Resolve the __HL_n__ placeholders left by hyperlink runs into real slide
+ *  relationship ids, appending external hyperlink relationships to the slide's
+ *  .rels file. */
+async function applyHyperlinkRels(
+  zip: JSZip,
+  slideNum: number,
+  xml: string,
+  links: { url: string }[],
+): Promise<string> {
+  const relsPath = `ppt/slides/_rels/slide${slideNum}.xml.rels`;
+  const relsFile = zip.file(relsPath);
+  let rels = relsFile
+    ? await relsFile.async("string")
+    : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`;
+  let maxId = 0;
+  for (const m of rels.matchAll(/Id="rId(\d+)"/g)) maxId = Math.max(maxId, Number(m[1]));
+  let additions = "";
+  links.forEach((lnk, i) => {
+    const rId = `rId${maxId + 1 + i}`;
+    additions += `<Relationship Id="${rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${escapeXml(lnk.url)}" TargetMode="External"/>`;
+    xml = xml.split(`__HL_${i}__`).join(rId);
+  });
+  rels = rels.replace("</Relationships>", `${additions}</Relationships>`);
+  zip.file(relsPath, rels);
+  return xml;
+}
+
 export async function buildMiniBoxFromTemplate(
   doc: MiniBoxDocument,
 ): Promise<Buffer> {
@@ -408,9 +471,11 @@ export async function buildMiniBoxFromTemplate(
       continue;
     }
     let xml = await slideFile.async("string");
+    const slideLinks: { url: string }[] = [];
     for (const edit of slideEdits) {
-      xml = replaceShapeText(xml, edit.shapeIndex, edit.value, edit.slide);
+      xml = replaceShapeText(xml, edit.shapeIndex, edit.value, edit.slide, slideLinks);
     }
+    if (slideLinks.length) xml = await applyHyperlinkRels(zip, slideNum, xml, slideLinks);
     zip.file(slidePath, xml);
   }
 
@@ -426,8 +491,8 @@ export async function buildMiniBoxFromTemplate(
     zip.file(slidePath, xml);
   }
 
-  // Content slides: whiten the red-band title placeholders (header + subject),
-  // grow overflow-prone body boxes, then lay out the GIF around the final text.
+  // Content slides: whiten the red-band title placeholders (header + subject)
+  // and grow overflow-prone body boxes so the preview matches PowerPoint.
   for (const slideNum of [2, 4, 5, 7]) {
     const slidePath = `ppt/slides/slide${slideNum}.xml`;
     const file = zip.file(slidePath);
