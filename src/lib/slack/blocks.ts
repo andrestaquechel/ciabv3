@@ -179,23 +179,39 @@ export function csmReviewBlocks(
   workflowId: string,
   slidePreview: string,
   csmMentions: string,
+  slidesLink?: string,
 ) {
   const header = csmMentions
     ? `${csmMentions}\n\nPlease review this Mini Box draft. Reply in this thread with changes.`
     : "Please review this Mini Box draft. Reply in this thread with changes.";
 
-  return [
+  const blocks: unknown[] = [
     {
       type: "section",
       text: { type: "mrkdwn", text: header },
     },
     ...mrkdwnSections(slidePreview),
+  ];
+
+  if (slidesLink) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `📊 <${slidesLink}|Open the Google Slides deck to review & comment>`,
+      },
+    });
+  }
+
+  blocks.push(
     {
       type: "context",
       elements: [
         {
           type: "mrkdwn",
-          text: "PowerPoint attached below ↑ — Morgan can click *Apply CSM feedback* when ready.",
+          text: slidesLink
+            ? "Comment directly on the Slides deck above — Morgan can click *Apply CSM feedback* when ready."
+            : "Morgan can click *Apply CSM feedback* when ready.",
         },
       ],
     },
@@ -210,7 +226,9 @@ export function csmReviewBlocks(
         },
       ],
     },
-  ];
+  );
+
+  return blocks;
 }
 
 export function finalDraftBlocks(topic: string, openUrl: string) {
