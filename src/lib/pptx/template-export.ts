@@ -168,12 +168,16 @@ function replaceShapeText(
   }
   if (!rebuilt.length) rebuilt.push(makeSpacer());
 
+  // Use replacement FUNCTIONS so a literal "$" in the content (e.g. "$22,000")
+  // is never interpreted as a regex backreference (which would corrupt the XML
+  // and blank the whole shape).
+  const body = rebuilt.join("");
   const newShape = shape.replace(
     /(<a:lstStyle\/>|<a:lstStyle>[\s\S]*?<\/a:lstStyle>)[\s\S]*?(<\/p:txBody>)/,
-    `$1${rebuilt.join("")}$2`,
+    (_m, lst, close) => `${lst}${body}${close}`,
   );
 
-  return slideXml.replace(shape, newShape);
+  return slideXml.replace(shape, () => newShape);
 }
 
 // --- content mapping ------------------------------------------------------
