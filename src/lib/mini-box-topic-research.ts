@@ -134,11 +134,11 @@ async function repairBrokenTopicLinks(
     }));
 
   const fixed = await anthropicJson<{ candidates: TopicCandidate[] }>({
-    system: `You fix broken source URLs for Living Security Mini Box topic research. Return JSON only. Every replacement URL must be real — do not invent paths.`,
+    system: `You fix broken source URLs for Living Security Mini Box topic research. Return JSON only. Every replacement URL must be real — do not invent paths. Use web search to find and open the correct article before replacing a link.`,
     user: `These topic candidates have source URLs that returned 404 or failed to load. Replace ONLY sourceLink and secondarySourceLink with working URLs to the same story (or the publication's verified article page).
 
 Rules:
-- Use exact, real article URLs you are confident exist.
+- Use web search to locate the actual article, then paste the exact URL you opened.
 - If the exact article cannot be found, use a working URL from the same publication that covers the same story, and update sourceName/sourceQuality accordingly.
 - Never fabricate IC3 PSA numbers, Forbes slugs, or BleepingComputer paths.
 
@@ -149,6 +149,8 @@ Return JSON: { "candidates": [ ...same ids with corrected links... ] }`,
     temperature: 0.2,
     maxTokens: 4096,
     model,
+    webSearch: true,
+    webSearchMaxUses: 6,
   });
 
   const fixedMap = new Map(
@@ -263,6 +265,9 @@ export async function generateTopicCandidates({
     temperature: 0.4,
     maxTokens: 8192,
     model: researchModel,
+    // Ground the source links in real, current pages instead of recalled URLs.
+    webSearch: true,
+    webSearchMaxUses: 8,
   });
 
   let candidates = (parsed.candidates || []).slice(0, 6).map((c, i) => ({
