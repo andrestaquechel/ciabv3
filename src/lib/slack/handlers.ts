@@ -18,7 +18,14 @@ import {
   type SlackWorkflowRecord,
 } from "@/lib/box-studio-drive-data";
 import { saveAnnualCalendar, loadAnnualCalendarsConfig } from "@/lib/db/annual-calendars";
-import { imageMediaType, isSlackImageMime, slackDownloadFile, slackPostMessage } from "@/lib/slack/api";
+import {
+  findLatestThreadImageFileId,
+  imageMediaType,
+  isSlackImageFiletype,
+  isSlackImageMime,
+  slackDownloadFile,
+  slackPostMessage,
+} from "@/lib/slack/api";
 import {
   calendarParsedBlocks,
   formatOutlineSlack,
@@ -30,8 +37,10 @@ import { topicCandidatesTableBlocks } from "@/lib/slack/newbox-blocks";
 import {
   handleNewboxCalendarImage,
   handleNewboxCalendarText,
+  handleNewboxCheckUpload,
   handleNewboxMonthSelect,
   handleNewboxTypeSelect,
+  resolveAwaitingCalendarWorkflow,
 } from "@/lib/slack/newbox-handlers";
 import { startCsmReview } from "@/lib/slack/csm-review";
 import { applyCsmFeedbackAndFinalize } from "@/lib/slack/morgan-review";
@@ -39,19 +48,23 @@ import { monthCiabTopic, monthCalendarLabel, MONTH_LABELS } from "@/lib/annual-c
 import { resolveSlackReview } from "@/lib/slack/review-settings";
 
 type SlackFile = { id: string; mimetype?: string; filetype?: string };
+type SlackMessageEvent = {
+  type: string;
+  text?: string;
+  user?: string;
+  channel: string;
+  ts: string;
+  thread_ts?: string;
+  files?: SlackFile[];
+  subtype?: string;
+  file?: SlackFile;
+  file_id?: string;
+  channel_id?: string;
+};
 type SlackEvent = {
   type: string;
   challenge?: string;
-  event?: {
-    type: string;
-    text?: string;
-    user?: string;
-    channel: string;
-    ts: string;
-    thread_ts?: string;
-    files?: SlackFile[];
-    subtype?: string;
-  };
+  event?: SlackMessageEvent;
 };
 
 function appBaseUrl() {
@@ -85,42 +98,103 @@ export function isCalendarCommand(text: string): boolean {
   return /\b(calendar|annual calendar|topic calendar|upload calendar)\b/.test(t);
 }
 
+function extractImageFileId(event: SlackMessageEvent): string | null {
+  for (const file of event.files ?? []) {
+    if (
+      isSlackImageMime(file.mimetype || "") ||
+      isSlackImageFiletype(file.filetype)
+    ) {
+      return file.id;
+    }
+  }
+
+  if (event.file?.id) {
+    if (
+      event.subtype === "file_share" ||
+      isSlackImageMime(event.file.mimetype || "") ||
+      isSlackImageFiletype(event.file.filetype)
+    ) {
+      return event.file.id;
+    }
+  }
+
+  return null;
+}
+
+async function handleSlackFileEvent(event: SlackMessageEvent) {
+  const channel = event.channel || event.channel_id;
+  if (!channel) return;
+
+  const threadTs = event.thread_ts || event.ts;
+  let fileId = extractImageFileId(event);
+
+  if (!fileId && event.thread_ts) {
+    fileId = await findLatestThreadImageFileId(channel, threadTs);
+  }
+
+  if (!fileId) return;
+
+  const workflow = await resolveAwaitingCalendarWorkflow(channel, threadTs);
+  if (workflow) {
+    await handleNewboxCalendarImage({
+      channel,
+      threadTs,
+      fileId,
+      workflow,
+    });
+    return;
+  }
+
+  await handleCalendarImage({
+    channel,
+    threadTs,
+    fileId,
+    userId: event.user,
+  });
+}
+
 export async function handleSlackEventPayload(payload: SlackEvent) {
   if (payload.type === "url_verification") return;
 
   const event = payload.event;
   if (!event) return;
+
+  if (event.type === "file_shared") {
+    const channel = event.channel || event.channel_id;
+    const fileId = event.file_id || event.file?.id;
+    if (!channel || !fileId) return;
+    const threadTs = event.thread_ts || event.ts;
+
+    const workflow = await resolveAwaitingCalendarWorkflow(channel, threadTs);
+    if (workflow) {
+      await handleNewboxCalendarImage({
+        channel,
+        threadTs,
+        fileId,
+        workflow,
+      });
+      return;
+    }
+
+    await handleCalendarImage({
+      channel,
+      threadTs,
+      fileId,
+      userId: event.user,
+    });
+    return;
+  }
+
   if (event.subtype && event.subtype !== "file_share") return;
 
   const channel = event.channel;
   const threadTs = event.thread_ts || event.ts;
   const text = event.text || "";
 
-  const imageFile = event.files?.find((f) =>
-    isSlackImageMime(f.mimetype || ""),
-  );
+  const imageFileId = extractImageFileId(event);
 
-  if (imageFile) {
-    const workflowId = await findSlackWorkflowIdByThread(channel, threadTs);
-    if (workflowId) {
-      const workflow = await loadSlackWorkflowFromDrive(workflowId);
-      if (workflow?.status === "awaiting_calendar") {
-        await handleNewboxCalendarImage({
-          channel,
-          threadTs,
-          fileId: imageFile.id,
-          workflow,
-        });
-        return;
-      }
-    }
-
-    await handleCalendarImage({
-      channel,
-      threadTs,
-      fileId: imageFile.id,
-      userId: event.user,
-    });
+  if (imageFileId || event.subtype === "file_share") {
+    await handleSlackFileEvent(event);
     return;
   }
 
@@ -623,6 +697,13 @@ export async function handleBlockActions(payload: {
 
   const threadTs = payload.message?.thread_ts || payload.message?.ts;
   const userId = payload.user?.id;
+
+  if (action.action_id.startsWith("newbox_check_upload:")) {
+    const workflowId = action.action_id.split(":")[1];
+    if (!workflowId) return;
+    await handleNewboxCheckUpload({ workflowId, channel, threadTs });
+    return;
+  }
 
   if (action.action_id.startsWith("newbox_type:")) {
     const [, workflowId, boxType] = action.action_id.split(":");

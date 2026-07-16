@@ -655,8 +655,8 @@ ANTHROPIC_MODEL=claude-sonnet-4-6`}
               <p className="mt-2 text-xs text-[var(--text-muted)]">
                 Enable Event Subscriptions, subscribe to bot events{" "}
                 <code>app_mention</code>, <code>message.im</code>,{" "}
-                <code>message.channels</code>, <code>message.groups</code>, then
-                click Retry after deploy.
+                <code>message.channels</code>, <code>message.groups</code>,{" "}
+                <code>file_shared</code>, then click Retry after deploy.
               </p>
             </div>
             <div>

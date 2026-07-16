@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { assertSlackSignature } from "@/lib/slack/verify";
 import { buildNewboxWizardResponse } from "@/lib/slack/newbox-handlers";
 import { parseMonthInput } from "@/lib/annual-calendar-types";
-import { registerSlackWorkflowThread } from "@/lib/box-studio-drive-data";
+import { registerSlackWorkflowThread, loadSlackWorkflowFromDrive } from "@/lib/box-studio-drive-data";
+import { registerCalendarWait } from "@/lib/db/slack-threads";
 import { slackPostMessage } from "@/lib/slack/api";
 
 export const runtime = "nodejs";
@@ -73,6 +74,15 @@ export async function POST(request: Request) {
           posted.ts,
           wizard.workflowId,
         );
+        const workflow = await loadSlackWorkflowFromDrive(wizard.workflowId);
+        if (workflow) {
+          await registerCalendarWait(
+            wizard.workflowId,
+            payload.channel_id,
+            posted.ts,
+            workflow.boxType,
+          );
+        }
       }
       return NextResponse.json({
         response_type: "ephemeral",

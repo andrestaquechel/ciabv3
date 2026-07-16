@@ -33,6 +33,24 @@ async function initSchema(db: Client) {
       updated_at TEXT NOT NULL
     );
   `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS slack_thread_workflows (
+      channel TEXT NOT NULL,
+      thread_ts TEXT NOT NULL,
+      workflow_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (channel, thread_ts)
+    );
+  `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS slack_calendar_waits (
+      workflow_id TEXT PRIMARY KEY,
+      channel TEXT NOT NULL,
+      thread_ts TEXT NOT NULL,
+      box_type TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
 }
 
 export async function getDb(): Promise<Client> {

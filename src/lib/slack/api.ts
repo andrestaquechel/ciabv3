@@ -81,6 +81,23 @@ export function isSlackImageMime(mime: string): boolean {
   return lower.startsWith("image/") || lower.includes("heic") || lower.includes("heif");
 }
 
+export function isSlackImageFiletype(filetype?: string): boolean {
+  if (!filetype) return false;
+  const t = filetype.toLowerCase();
+  return [
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "webp",
+    "heic",
+    "heif",
+    "bmp",
+    "tif",
+    "tiff",
+  ].includes(t);
+}
+
 export async function slackGetThreadReplies(channel: string, threadTs: string) {
   const url = new URL("https://slack.com/api/conversations.replies");
   url.searchParams.set("channel", channel);
@@ -98,10 +115,44 @@ export async function slackGetThreadReplies(channel: string, threadTs: string) {
       user?: string;
       text?: string;
       bot_id?: string;
+      subtype?: string;
+      file?: { id?: string; mimetype?: string; filetype?: string };
+      files?: Array<{ id: string; mimetype?: string; filetype?: string }>;
     }>;
   };
   if (!data.ok) throw new Error(data.error || "Could not read thread.");
   return data.messages ?? [];
+}
+
+export async function findLatestThreadImageFileId(
+  channel: string,
+  threadTs: string,
+): Promise<string | null> {
+  const messages = await slackGetThreadReplies(channel, threadTs);
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    if (msg.bot_id) continue;
+
+    for (const file of msg.files ?? []) {
+      if (
+        isSlackImageMime(file.mimetype || "") ||
+        isSlackImageFiletype(file.filetype)
+      ) {
+        return file.id;
+      }
+    }
+
+    if (msg.file?.id) {
+      if (
+        msg.subtype === "file_share" ||
+        isSlackImageMime(msg.file.mimetype || "") ||
+        isSlackImageFiletype(msg.file.filetype)
+      ) {
+        return msg.file.id;
+      }
+    }
+  }
+  return null;
 }
 
 export async function slackUploadFile({

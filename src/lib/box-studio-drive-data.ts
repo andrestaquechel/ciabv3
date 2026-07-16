@@ -13,6 +13,10 @@ const FOLDER_MIME = "application/vnd.google-apps.folder";
 import type { GenerationPromptsConfig } from "@/lib/mini-box-prompts";
 import type { AnnualCalendarsConfig } from "@/lib/annual-calendar-types";
 import type { TopicResearchPromptsConfig } from "@/lib/mini-box-topic-prompts";
+import {
+  findSlackThreadWorkflowId,
+  registerSlackThreadWorkflow,
+} from "@/lib/db/slack-threads";
 
 export type AppSettingsPayload = {
   claudeModel?: string;
@@ -310,25 +314,39 @@ export async function registerSlackWorkflowThread(
   threadTs: string,
   workflowId: string,
 ): Promise<void> {
-  const existing = (await loadAppSettingsFromDrive()) ?? {};
-  const threadKey = `${channel}:${threadTs}`;
-  const next: AppSettingsPayload = {
-    ...existing,
-    slackActiveThreads: {
-      ...existing.slackActiveThreads,
-      [threadKey]: workflowId,
-    },
-    updatedAt: new Date().toISOString(),
-  };
-  const dataFolderId = await getSharedDataFolderId();
-  await upsertJsonFile(dataFolderId, APP_SETTINGS_FILE, next);
+  await registerSlackThreadWorkflow(channel, threadTs, workflowId);
+
+  // Legacy Drive mapping — best-effort for older deployments
+  try {
+    const existing = (await loadAppSettingsFromDrive()) ?? {};
+    const threadKey = `${channel}:${threadTs}`;
+    const next: AppSettingsPayload = {
+      ...existing,
+      slackActiveThreads: {
+        ...existing.slackActiveThreads,
+        [threadKey]: workflowId,
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    const dataFolderId = await getSharedDataFolderId();
+    await upsertJsonFile(dataFolderId, APP_SETTINGS_FILE, next);
+  } catch {
+    // SQLite mapping is primary
+  }
 }
 
 export async function findSlackWorkflowIdByThread(
   channel: string,
   threadTs: string,
 ): Promise<string | null> {
-  const settings = await loadAppSettingsFromDrive();
-  const threadKey = `${channel}:${threadTs}`;
-  return settings?.slackActiveThreads?.[threadKey] ?? null;
+  const fromDb = await findSlackThreadWorkflowId(channel, threadTs);
+  if (fromDb) return fromDb;
+
+  try {
+    const settings = await loadAppSettingsFromDrive();
+    const threadKey = `${channel}:${threadTs}`;
+    return settings?.slackActiveThreads?.[threadKey] ?? null;
+  } catch {
+    return null;
+  }
 }

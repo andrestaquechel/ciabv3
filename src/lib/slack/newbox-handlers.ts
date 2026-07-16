@@ -18,6 +18,11 @@ import {
   type SlackWorkflowRecord,
 } from "@/lib/box-studio-drive-data";
 import {
+  clearCalendarWait,
+  findCalendarWaitByThread,
+  registerCalendarWait,
+} from "@/lib/db/slack-threads";
+import {
   loadAnnualCalendarsConfig,
   saveAnnualCalendar,
 } from "@/lib/db/annual-calendars";
@@ -25,7 +30,7 @@ import {
   parseAnnualCalendarImage,
   parseAnnualCalendarText,
 } from "@/lib/annual-calendar-ocr";
-import { imageMediaType, isSlackImageMime, slackDownloadFile, slackPostMessage } from "@/lib/slack/api";
+import { imageMediaType, isSlackImageMime, findLatestThreadImageFileId, slackDownloadFile, slackPostMessage } from "@/lib/slack/api";
 import { calendarParsedBlocks } from "@/lib/slack/blocks";
 import {
   calendarUploadPromptBlocks,
@@ -76,6 +81,7 @@ async function promptCalendarUpload({
   await persist(workflow);
   if (threadTs) {
     await registerSlackWorkflowThread(channel, threadTs, workflow.id);
+    await registerCalendarWait(workflow.id, channel, threadTs, workflow.boxType);
   }
   await slackPostMessage({
     channel,
@@ -147,6 +153,7 @@ export async function resumeNewboxAfterCalendar({
   workflow.status = "newbox_setup";
   workflow.targetYear = calendar.year;
   await persist(workflow);
+  await clearCalendarWait(workflowId);
 
   const calendars: AnnualCalendarsConfig = {
     [String(calendar.year)]: calendar,
@@ -250,6 +257,99 @@ export async function handleNewboxCalendarText({
   }
 }
 
+export async function resolveAwaitingCalendarWorkflow(
+  channel: string,
+  threadTs: string,
+  workflowIdHint?: string,
+): Promise<SlackWorkflowRecord | null> {
+  if (workflowIdHint) {
+    const workflow = await loadSlackWorkflowFromDrive(workflowIdHint);
+    if (workflow?.status === "awaiting_calendar") return workflow;
+  }
+
+  const mappedId = await findSlackWorkflowIdByThread(channel, threadTs);
+  if (mappedId) {
+    const workflow = await loadSlackWorkflowFromDrive(mappedId);
+    if (workflow?.status === "awaiting_calendar") return workflow;
+  }
+
+  const wait = await findCalendarWaitByThread(channel, threadTs);
+  if (wait) {
+    const workflow = await loadSlackWorkflowFromDrive(wait.workflowId);
+    if (workflow?.status === "awaiting_calendar") return workflow;
+  }
+
+  return null;
+}
+
+export async function processCalendarUploadInThread({
+  channel,
+  threadTs,
+  workflowIdHint,
+  fileIdHint,
+}: {
+  channel: string;
+  threadTs: string;
+  workflowIdHint?: string;
+  fileIdHint?: string;
+}) {
+  const workflow = await resolveAwaitingCalendarWorkflow(
+    channel,
+    threadTs,
+    workflowIdHint,
+  );
+  if (!workflow) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: "No calendar upload is pending in this thread. Run `/newbox` to start again.",
+    });
+    return;
+  }
+
+  const fileId =
+    fileIdHint || (await findLatestThreadImageFileId(channel, threadTs));
+  if (!fileId) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: "I don't see an image in this thread yet. Attach a photo of the calendar, then click *Process my upload* or send the image again.",
+    });
+    return;
+  }
+
+  await handleNewboxCalendarImage({
+    channel,
+    threadTs,
+    fileId,
+    workflow,
+  });
+}
+
+export async function handleNewboxCheckUpload({
+  workflowId,
+  channel,
+  threadTs,
+}: {
+  workflowId: string;
+  channel: string;
+  threadTs?: string;
+}) {
+  if (!threadTs) {
+    await slackPostMessage({
+      channel,
+      text: "Open the thread with your calendar photo and click *Process my upload* there.",
+    });
+    return;
+  }
+
+  await processCalendarUploadInThread({
+    channel,
+    threadTs,
+    workflowIdHint: workflowId,
+  });
+}
+
 /** Build slash-command response with interactive blocks (buttons / month dropdown). */
 export async function buildNewboxWizardResponse({
   channel,
@@ -341,6 +441,9 @@ export async function buildNewboxWizardResponse({
     if (!hasAnnualCalendarTopics(calendars, year, parsed.boxType)) {
       workflow.status = "awaiting_calendar";
       await persistNewWorkflow(workflow, channel, threadTs);
+      if (threadTs) {
+        await registerCalendarWait(workflowId, channel, threadTs, parsed.boxType);
+      }
       return {
         workflowId,
         text: "Annual topic calendar needed",

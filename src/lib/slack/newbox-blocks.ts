@@ -54,11 +54,23 @@ export function calendarUploadPromptBlocks(
       },
     },
     {
+      type: "actions",
+      block_id: `newbox_calendar_upload_${workflowId}`,
+      elements: [
+        {
+          type: "button",
+          action_id: `newbox_check_upload:${workflowId}`,
+          text: { type: "plain_text", text: "Process my upload", emoji: true },
+          style: "primary",
+        },
+      ],
+    },
+    {
       type: "context",
       elements: [
         {
           type: "mrkdwn",
-          text: `_Waiting for calendar · workflow \`${workflowId.slice(0, 8)}…\`_`,
+          text: `_Waiting for calendar · workflow \`${workflowId.slice(0, 8)}…\` · or click *Process my upload* after attaching a photo_`,
         },
       ],
     },
