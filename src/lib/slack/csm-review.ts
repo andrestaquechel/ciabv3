@@ -1,7 +1,4 @@
-import {
-  buildMiniBoxFromTemplate,
-  pptxFilename,
-} from "@/lib/pptx/template-export";
+import { buildMiniBoxFromTemplate } from "@/lib/pptx/template-export";
 import {
   loadAppSettingsFromDrive,
   loadGeneratedDraftFromDrive,
@@ -10,7 +7,8 @@ import {
 } from "@/lib/box-studio-drive-data";
 import { draftToMiniBoxDocument, slidePreviewText } from "@/lib/slack/draft-document";
 import { resolveSlackReview } from "@/lib/slack/review-settings";
-import { slackPostMessage, slackUploadFile } from "@/lib/slack/api";
+import { slackPostMessage } from "@/lib/slack/api";
+import { uploadPptxAsGoogleSlides } from "@/lib/google-drive-slides";
 import { csmReviewBlocks } from "@/lib/slack/blocks";
 
 function csmMentionLine(csmUserIds?: string[]) {
@@ -48,11 +46,23 @@ export async function startCsmReview({
 
   const doc = draftToMiniBoxDocument(draft);
   const pptxBuffer = await buildMiniBoxFromTemplate(doc);
-  const filename = pptxFilename(doc);
   const settings = await loadAppSettingsFromDrive();
   const { csmUserIds } = resolveSlackReview(settings?.slackReview);
   const mentions = csmMentionLine(csmUserIds);
   const preview = slidePreviewText(doc);
+
+  // Upload the deck to Google Drive as a commentable Google Slides file. This
+  // replaces the old Slack files.upload call, which failed with missing_scope.
+  let slidesLink: string | undefined;
+  try {
+    const uploaded = await uploadPptxAsGoogleSlides({
+      pptxBuffer: Buffer.from(pptxBuffer),
+      name: `Mini Box - ${doc.topic}`,
+    });
+    slidesLink = uploaded.webViewLink;
+  } catch (err) {
+    console.error("CSM review: Google Slides upload failed:", err);
+  }
 
   await slackPostMessage({
     channel,
@@ -60,22 +70,14 @@ export async function startCsmReview({
     text: mentions
       ? `${mentions} — Mini Box ready for CSM review`
       : "Mini Box ready for CSM review",
-    blocks: csmReviewBlocks(workflow.id, preview, mentions),
+    blocks: csmReviewBlocks(workflow.id, preview, mentions, slidesLink),
   });
 
-  try {
-    await slackUploadFile({
-      channel,
-      threadTs,
-      buffer: Buffer.from(pptxBuffer),
-      filename,
-      initialComment: `📎 *${doc.topic}* — PowerPoint draft for review. Reply in this thread with edits.`,
-    });
-  } catch (err) {
+  if (!slidesLink) {
     await slackPostMessage({
       channel,
       threadTs,
-      text: `Could not upload PPTX: ${err instanceof Error ? err.message : "upload failed"}. Use Box Studio link above.`,
+      text: "⚠️ Could not create the Google Slides deck automatically — open the box in Box Studio to export it manually.",
     });
   }
 
