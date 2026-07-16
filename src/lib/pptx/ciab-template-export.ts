@@ -1,34 +1,29 @@
 import JSZip from "jszip";
 import { readFile } from "fs/promises";
 import path from "path";
-import type { CiabGeneratedContent } from "@/lib/ciab";
+import type { CiabGeneratedContent, CiabGifs } from "@/lib/ciab";
+import type { GifSelection } from "@/lib/mini-box";
 import { replaceShapeText } from "@/lib/pptx/template-export";
 
 /**
  * CIAB "Main Box" branded deck export.
  *
  * Fills the branded 20-slide master (`templates/ciab-master.pptx`, derived from
- * CiaB_06.26 with GIFs stripped) with generated content, preserving the
- * template's exact fonts (embedded InterTight), colors, and layout via the same
- * paragraph-styling-preserving replacement the Mini Box uses.
+ * CiaB_06.26 with GIFs stripped) with generated content — preserving the
+ * template's embedded InterTight fonts, colors, and layout via the same
+ * paragraph-styling-preserving replacement the Mini Box uses — and injects a GIF
+ * above each "Via Giphy" caption.
  *
- * Slide map (confirmed from the master; shape indices are text-shape order):
- *   1  cover           [0]=title
- *   2  welcome         [1]=Hello+framing  [2]="In this box…"+signoff  [3]=Via Giphy
- *   3-7 blog           body shapes vary per slide (see BLOG_FILL)
- *   8/11/14/17 dividers (Week N — static)
- *   9  wk1 email       [0]=body  [3]=Subject
- *   10 wk1 chat        [1]=message
- *   12 wk2 email       [1]=body  [3]=Subject
- *   13 wk2 chat        [1]=message
- *   15 wk3 email       [0]=body  [2]=Subject
- *   16 wk3 chat        [1]=message
- *   18 wk4 email       [2]=body  [3]=Subject
- *   19 wk4 chat        [1]=message
- *   20 resources       [1]=intro+modules
- *
- * GIFs sit above each "Via Giphy" caption; image injection is a follow-up
- * (see docs/decisions/003) — text fidelity lands first.
+ * Slide map (text-shape order, confirmed from the master):
+ *   1  cover        [0]=title
+ *   2  welcome      [1]=Hello+framing  [2]="In this box…"+signoff  caption:"Via Giphy"
+ *   3-7 blog        body shapes vary per slide (see buildEdits)
+ *   8/11/14/17 dividers (static)
+ *   9  wk1 email    [0]=body  [3]=Subject          10 wk1 chat  [1]
+ *   12 wk2 email    [1]=body  [3]=Subject          13 wk2 chat  [1]
+ *   15 wk3 email    [0]=body  [2]=Subject          16 wk3 chat  [1]
+ *   18 wk4 email    [2]=body  [3]=Subject          19 wk4 chat  [1]
+ *   20 resources    [1]=modules
  */
 
 export const CIAB_TEMPLATE_FILE = "ciab-master.pptx";
@@ -36,7 +31,6 @@ const TEMPLATE_PATH = path.join(process.cwd(), "templates", CIAB_TEMPLATE_FILE);
 
 type Edit = { shape: number; text: string };
 
-/** Per-week email/chat slide + shape mapping. */
 const WEEK_SLIDES = [
   { week: 1, emailSlide: 9, emailBody: 0, emailSubject: 3, chatSlide: 10, chatBody: 1 },
   { week: 2, emailSlide: 12, emailBody: 1, emailSubject: 3, chatSlide: 13, chatBody: 1 },
@@ -44,103 +38,254 @@ const WEEK_SLIDES = [
   { week: 4, emailSlide: 18, emailBody: 2, emailSubject: 3, chatSlide: 19, chatBody: 1 },
 ] as const;
 
-function emailBodyText(greeting: string, body: string): string {
-  return [greeting, "", body].filter((l) => l !== undefined).join("\n").trim();
-}
-
 function yourMoveLine(prefix: string, text: string): string {
   const cleaned = (text || "").replace(/^🎯\s*Your (Final )?Move:\s*/i, "").trim();
   return cleaned ? `🎯 ${prefix} ${cleaned}` : "";
 }
 
-/**
- * Build the per-slide edit list for a box. Only the clean 1:1 slots are mapped
- * with confidence; the blog is filled best-effort into each blog slide's primary
- * body shape (content-shaping to the exact multi-shape blog layout is the next
- * iteration).
- */
+function joinLines(lines: (string | undefined)[]): string {
+  return lines.filter((l) => l !== undefined).join("\n").trim();
+}
+
 function buildEdits(content: CiabGeneratedContent): Record<number, Edit[]> {
   const edits: Record<number, Edit[]> = {};
   const add = (slide: number, shape: number, text: string) => {
     (edits[slide] ||= []).push({ shape, text });
   };
 
-  // Cover
   add(1, 0, content.topic);
 
-  // Welcome — full note in the top body shape; clear the lower duplicate shape.
   add(2, 1, content.welcome.body);
   add(2, 2, "");
 
-  // Blog (best-effort): intro on slide 3, sections across 3-6, conclusion on 7.
   const blogSectionText = (i: number) => {
     const s = content.blog.sections[i];
     if (!s) return "";
-    return [s.heading, "", s.body, "", yourMoveLine("Your Move:", s.yourMove)]
-      .filter((l) => l !== undefined)
-      .join("\n")
-      .trim();
+    return joinLines([s.heading, "", s.body, "", yourMoveLine("Your Move:", s.yourMove)]);
   };
   add(3, 1, content.blog.intro);
   add(3, 4, blogSectionText(0));
   add(4, 0, blogSectionText(1));
-  add(4, 1, ""); // clear leftover example heading/body
+  add(4, 1, "");
   add(5, 1, blogSectionText(2));
   add(5, 3, "");
   add(6, 1, blogSectionText(3));
   add(
     7,
     1,
-    [
+    joinLines([
       content.blog.conclusion.heading,
       "",
       content.blog.conclusion.body,
       "",
       yourMoveLine("Your Final Move:", content.blog.conclusion.yourFinalMove),
-    ]
-      .filter((l) => l !== undefined)
-      .join("\n")
-      .trim(),
+    ]),
   );
 
-  // Weekly emails + chats
   for (const w of WEEK_SLIDES) {
     const email = content.emails.find((e) => e.week === w.week) || content.emails[w.week - 1];
     const chat = content.chats.find((c) => c.week === w.week) || content.chats[w.week - 1];
     if (email) {
-      add(w.emailSlide, w.emailBody, emailBodyText(email.greeting, email.body));
+      add(w.emailSlide, w.emailBody, joinLines([email.greeting, "", email.body]));
       add(w.emailSlide, w.emailSubject, email.subject ? `Subject: ${email.subject}` : "");
     }
     if (chat) add(w.chatSlide, w.chatBody, chat.message);
   }
 
-  // Resources
-  const resourceText = [content.resources.intro, "", ...content.resources.items]
-    .filter((l) => l !== undefined)
-    .join("\n")
-    .trim();
-  add(20, 1, resourceText);
+  add(20, 1, joinLines([content.resources.intro, "", ...content.resources.items]));
 
   return edits;
 }
 
-export async function buildCiabDeckFromTemplate(content: CiabGeneratedContent): Promise<Buffer> {
+/* ------------------------------------------------------------------ */
+/* GIF injection                                                       */
+/* ------------------------------------------------------------------ */
+
+/** slide → GIF for that slide's "Via Giphy" caption. */
+function gifSlideMap(gifs?: Partial<CiabGifs>): Record<number, GifSelection> {
+  if (!gifs) return {};
+  const map: Record<number, GifSelection> = {};
+  if (gifs.welcome) map[2] = gifs.welcome;
+  const blog = gifs.blog || [];
+  [3, 4, 5, 6, 7].forEach((slide, i) => {
+    if (blog[i]) map[slide] = blog[i];
+  });
+  const emails = gifs.emails || [];
+  [9, 12, 15, 18].forEach((slide, i) => {
+    if (emails[i]) map[slide] = emails[i];
+  });
+  const chats = gifs.chats || [];
+  [10, 13, 16, 19].forEach((slide, i) => {
+    if (chats[i]) map[slide] = chats[i];
+  });
+  return map;
+}
+
+async function fetchGif(gif: GifSelection): Promise<Buffer | null> {
+  const url = gif?.url || gif?.previewUrl;
+  if (!url) return null;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.length ? buf : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Read width/height from a GIF header (bytes 6-9, little-endian). */
+function gifDimensions(buf: Buffer): { w: number; h: number } {
+  if (buf.length >= 10 && buf.toString("ascii", 0, 3) === "GIF") {
+    return { w: buf.readUInt16LE(6) || 480, h: buf.readUInt16LE(8) || 270 };
+  }
+  return { w: 480, h: 270 };
+}
+
+function readOffExt(shapeXml: string) {
+  const off = shapeXml.match(/<a:off x="(-?\d+)" y="(-?\d+)"\/>/);
+  const ext = shapeXml.match(/<a:ext cx="(\d+)" cy="(\d+)"\/>/);
+  if (!off || !ext) return null;
+  return { x: +off[1], y: +off[2], cx: +ext[1], cy: +ext[2] };
+}
+
+/** Concatenated text of a shape (runs may split a word across <a:t> tags). */
+function shapePlainText(shapeXml: string): string {
+  return [...shapeXml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join("");
+}
+
+/** Find the "Via Giphy" / "View Giphy" caption shape on a slide. Matches on the
+ *  shape's concatenated run text so a caption split across runs still resolves. */
+function findCaptionShape(slideXml: string): string | null {
+  const shapes = slideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
+  return shapes.find((s) => /vi(a|ew)\s*giphy/i.test(shapePlainText(s))) || null;
+}
+
+const GIF_GAP = 120000;
+const GIF_MAX_H = 2300000;
+const GIF_TOP_LIMIT = 1500000; // keep clear of the red page header
+
+function buildPicXml(id: number, relId: string, name: string, box: { x: number; y: number; cx: number; cy: number }): string {
+  return (
+    `<p:pic>` +
+    `<p:nvPicPr>` +
+    `<p:cNvPr id="${id}" name="${name}"/>` +
+    `<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr>` +
+    `<p:nvPr/>` +
+    `</p:nvPicPr>` +
+    `<p:blipFill><a:blip r:embed="${relId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>` +
+    `<p:spPr>` +
+    `<a:xfrm><a:off x="${box.x}" y="${box.y}"/><a:ext cx="${box.cx}" cy="${box.cy}"/></a:xfrm>` +
+    `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>` +
+    `</p:spPr>` +
+    `</p:pic>`
+  );
+}
+
+function nextRelId(relsXml: string): string {
+  const ids = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((m) => +m[1]);
+  return `rId${(ids.length ? Math.max(...ids) : 0) + 1}`;
+}
+
+function ensureGifContentType(zip: JSZip, ctXml: string): string {
+  if (/Extension="gif"/i.test(ctXml)) return ctXml;
+  return ctXml.replace(
+    /<\/Types>/,
+    `<Default Extension="gif" ContentType="image/gif"/></Types>`,
+  );
+}
+
+/**
+ * Inject the mapped GIFs above their captions. Mutates the zip (media + rels +
+ * content types) and returns nothing; slide XML edits are applied in place.
+ */
+async function injectGifs(zip: JSZip, gifs: Partial<CiabGifs> | undefined): Promise<void> {
+  const map = gifSlideMap(gifs);
+  const slides = Object.keys(map).map(Number);
+  if (!slides.length) return;
+
+  let ctXml = (await zip.file("[Content_Types].xml")?.async("string")) || "";
+  ctXml = ensureGifContentType(zip, ctXml);
+  if (ctXml) zip.file("[Content_Types].xml", ctXml);
+
+  for (const slide of slides) {
+    const gif = map[slide];
+    const buf = await fetchGif(gif);
+    if (!buf) continue;
+
+    const slideFile = zip.file(`ppt/slides/slide${slide}.xml`);
+    const relsFile = zip.file(`ppt/slides/_rels/slide${slide}.xml.rels`);
+    if (!slideFile || !relsFile) continue;
+
+    let slideXml = await slideFile.async("string");
+    let relsXml = await relsFile.async("string");
+
+    const caption = findCaptionShape(slideXml);
+    const capBox = caption ? readOffExt(caption) : null;
+    if (!capBox) continue;
+
+    // Media + relationship
+    const mediaName = `ciab-gif-slide${slide}.gif`;
+    zip.file(`ppt/media/${mediaName}`, buf);
+    const relId = nextRelId(relsXml);
+    relsXml = relsXml.replace(
+      /<\/Relationships>/,
+      `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${mediaName}"/></Relationships>`,
+    );
+
+    // Point the "Via Giphy" caption hyperlink at this GIF (best-effort).
+    const gifUrl = gif?.url || gif?.previewUrl;
+    const hl = caption?.match(/<a:hlinkClick[^>]*r:id="(rId\d+)"/);
+    if (gifUrl && hl) {
+      relsXml = relsXml.replace(
+        new RegExp(`(<Relationship Id="${hl[1]}"[^>]*Target=")[^"]*(")`),
+        (_m, pre, post) => `${pre}${gifUrl.replace(/&/g, "&amp;")}${post}`,
+      );
+    }
+
+    // Geometry: centered above the caption, height-capped, aspect preserved.
+    const { w, h } = gifDimensions(buf);
+    const aspect = h / w;
+    let cx = capBox.cx;
+    let cy = Math.round(cx * aspect);
+    if (cy > GIF_MAX_H) {
+      cy = GIF_MAX_H;
+      cx = Math.round(cy / aspect);
+    }
+    const x = capBox.x + Math.round((capBox.cx - cx) / 2);
+    let y = capBox.y - GIF_GAP - cy;
+    if (y < GIF_TOP_LIMIT) y = GIF_TOP_LIMIT;
+
+    const pic = buildPicXml(9000 + slide, relId, `CIAB GIF ${slide}`, { x, y, cx, cy });
+    slideXml = slideXml.replace(/<\/p:spTree>/, `${pic}</p:spTree>`);
+
+    zip.file(`ppt/slides/slide${slide}.xml`, slideXml);
+    zip.file(`ppt/slides/_rels/slide${slide}.xml.rels`, relsXml);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+
+export async function buildCiabDeckFromTemplate(
+  content: CiabGeneratedContent,
+  gifs?: Partial<CiabGifs>,
+): Promise<Buffer> {
   const templateBuffer = await readFile(TEMPLATE_PATH);
   const zip = await JSZip.loadAsync(templateBuffer);
 
   const edits = buildEdits(content);
-
   for (const [slideStr, slideEdits] of Object.entries(edits)) {
     const slideNum = Number(slideStr);
     const file = zip.file(`ppt/slides/slide${slideNum}.xml`);
     if (!file) continue;
     let xml = await file.async("string");
-    // Apply higher shape indices first so earlier edits do not shift later matches.
     for (const edit of [...slideEdits].sort((a, b) => b.shape - a.shape)) {
       xml = replaceShapeText(xml, edit.shape, edit.text, slideNum);
     }
     zip.file(`ppt/slides/slide${slideNum}.xml`, xml);
   }
+
+  await injectGifs(zip, gifs);
 
   return zip.generateAsync({ type: "nodebuffer" });
 }

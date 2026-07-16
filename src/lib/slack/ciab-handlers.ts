@@ -22,6 +22,8 @@ import {
   generateFullCiab,
 } from "@/lib/ciab-generate";
 import { pickCiabGifs } from "@/lib/giphy-search";
+import { buildCiabDeckFromTemplate } from "@/lib/pptx/ciab-template-export";
+import { uploadPptxAsGoogleSlides } from "@/lib/google-drive-slides";
 import { ciabDisplayName } from "@/lib/ciab";
 import {
   ciabBoxSlackPreview,
@@ -274,12 +276,25 @@ export async function handleCiabOutlineApproval({
     chats: content.chats.map((c) => c.message),
   });
 
-  // Reviewable Google Doc (best-effort).
+  // Branded Google Slides deck (best-effort) — the primary deliverable.
+  let deckUrl: string | undefined;
+  try {
+    const pptxBuffer = await buildCiabDeckFromTemplate(content, gifs);
+    const uploaded = await uploadPptxAsGoogleSlides({
+      pptxBuffer: Buffer.from(pptxBuffer),
+      name: boxName,
+    });
+    deckUrl = uploaded.webViewLink;
+  } catch (err) {
+    console.error("CIAB branded deck build/upload failed:", err);
+  }
+
+  // Reviewable Google Doc (best-effort) — a text mirror for inline commenting.
   let docUrl: string | undefined;
   try {
     const uploaded = await uploadHtmlAsGoogleDoc({
       html: renderCiabBoxHtml(content, gifs),
-      name: boxName,
+      name: `${boxName} — Text`,
     });
     docUrl = uploaded.webViewLink;
   } catch (err) {
@@ -301,12 +316,14 @@ export async function handleCiabOutlineApproval({
       targetMonth: workflow.targetMonth,
       targetYear: workflow.targetYear,
       reviewDocUrl: docUrl,
+      reviewDeckUrl: deckUrl,
     });
     workflow.ciabDraftId = draftId;
   } catch {
     workflow.ciabDraftId = undefined;
   }
   workflow.ciabReviewDocUrl = docUrl;
+  workflow.ciabReviewDeckUrl = deckUrl;
   workflow.status = "ciab_full_draft";
   await persist(workflow);
 
@@ -318,14 +335,14 @@ export async function handleCiabOutlineApproval({
     channel,
     threadTs,
     text: `Full Main Box ready: ${boxName}`,
-    blocks: ciabBoxReadyBlocks(boxName, docUrl, mrkdwnSections(ciabBoxSlackPreview(content)), mentions),
+    blocks: ciabBoxReadyBlocks(boxName, docUrl, mrkdwnSections(ciabBoxSlackPreview(content)), mentions, deckUrl),
   });
 
-  if (!docUrl) {
+  if (!deckUrl && !docUrl) {
     await slackPostMessage({
       channel,
       threadTs,
-      text: "⚠️ Could not create the Google Doc automatically. The draft is saved — retry or check Drive access (BOX_STUDIO_GOOGLE_REFRESH_TOKEN).",
+      text: "⚠️ Could not create the deck or Doc automatically. The draft is saved — retry or check Drive access (BOX_STUDIO_GOOGLE_REFRESH_TOKEN).",
     });
   }
   if (full.note) await slackPostMessage({ channel, threadTs, text: full.note });

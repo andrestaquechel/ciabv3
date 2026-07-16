@@ -234,12 +234,13 @@ export function ciabOutlineReviewBlocks(
   return blocks;
 }
 
-/** Final "full box drafted" message with the reviewable Doc link. */
+/** Final "full box drafted" message with the branded deck + reviewable Doc links. */
 export function ciabBoxReadyBlocks(
   boxName: string,
   docUrl: string | undefined,
   previewSections: Array<{ type: "section"; text: { type: "mrkdwn"; text: string } }>,
   csmMentions?: string,
+  deckUrl?: string,
 ) {
   const blocks: unknown[] = [
     {
@@ -248,6 +249,12 @@ export function ciabBoxReadyBlocks(
     },
     ...previewSections,
   ];
+  if (deckUrl) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `📊 <${deckUrl}|Open the branded deck (Google Slides) to review & comment>` },
+    });
+  }
   if (docUrl) {
     blocks.push({
       type: "section",

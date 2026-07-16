@@ -294,6 +294,7 @@ export type GeneratedCiabDraft = {
   targetMonth?: number;
   targetYear?: number;
   reviewDocUrl?: string;
+  reviewDeckUrl?: string;
 };
 
 async function ensureCiabDraftsFolder(): Promise<string> {
@@ -353,6 +354,7 @@ export type SlackWorkflowRecord = {
   ciabOutline?: import("@/lib/ciab-prompts").CiabOutline;
   ciabDraftId?: string;
   ciabReviewDocUrl?: string;
+  ciabReviewDeckUrl?: string;
   createdAt: string;
   updatedAt: string;
   createdBy?: string;
