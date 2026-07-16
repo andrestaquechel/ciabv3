@@ -1,5 +1,14 @@
 import type { GifSelection } from "@/lib/mini-box";
 
+/**
+ * Fallback Giphy REST API key, used only when GIPHY_API_KEY is not set in the
+ * environment (the env var always takes precedence). This is a standard Giphy
+ * "API" key passed as the `api_key` query param to the REST endpoint — not the
+ * JS SDK. Prefer setting GIPHY_API_KEY in the deployment env; this constant is
+ * a convenience so GIF search still works without it.
+ */
+const GIPHY_FALLBACK_API_KEY = "4GXP73mOSrZ6KwUiqunCSwWwjPEDyUMx";
+
 const MOCK_GIFS: NonNullable<GifSelection>[] = [
   {
     id: "mock-welcome",
@@ -66,7 +75,7 @@ export async function searchGiphy(
   query: string,
   intentTerms?: string[],
 ): Promise<NonNullable<GifSelection> | null> {
-  const apiKey = process.env.GIPHY_API_KEY?.trim();
+  const apiKey = process.env.GIPHY_API_KEY?.trim() || GIPHY_FALLBACK_API_KEY;
   if (!apiKey) {
     const pick = MOCK_GIFS[Math.abs(hash(query)) % MOCK_GIFS.length];
     return { ...pick, query, id: `${pick.id}-${hash(query)}` };
