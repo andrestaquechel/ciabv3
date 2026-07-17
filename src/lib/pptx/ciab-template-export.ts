@@ -208,8 +208,17 @@ const GIF_GAP = 137160; // 0.15in — uniform gap: text → GIF and GIF → capt
 // placement (not the estimate) so overflow/caption detection stays accurate.
 const GIF_SAFETY_GAP = 411480; // ~0.45in
 const CAP_GAP = 91440; // 0.10in — GIF bottom → caption top
+const GIF_SECTION_GAP = 164592; // ~0.18in — moved caption → content snapped up below it
+// "Via Giphy" caption: a small, fixed box centered under the GIF, 10pt Arial.
+const CAP_W = 1097280; // ~1.2in
+const CAP_H = 365760; // ~0.4in
+const CAP_FONT_SZ = "1000"; // 10pt
 const GIF_TARGET_H = 1920240; // ~2.1in — preferred GIF height
 export const GIF_FLOOR_H = 914400; // ~1.0in — never render a GIF smaller than this
+// Lower floor used only when content sits BELOW the caption (slide 3's blog
+// section): that copy is kept at REGULAR size (never autofit-shrunk), so the GIF
+// yields more room — down to this smaller floor — to keep the font uniform.
+export const GIF_FLOOR_BELOW = 548640; // ~0.6in
 const GIF_MAX_W = 3520440; // ~3.85in
 const GIF_TOP_LIMIT = 1280160; // keep clear of the red page header
 const BOTTOM_MARGIN = 320040; // keep the caption clear of the slide bottom
@@ -218,6 +227,7 @@ const EMU_PER_PT = 12700;
 // always have room: GIF target + gaps + a caption line.
 const GIF_BAND_RESERVE = GIF_TARGET_H + GIF_GAP + CAP_GAP + 457200; // ~2.75in
 const MIN_AUTOFIT_SCALE = 0.55; // never shrink body text below 55%
+const VERIFY_TOL = 91440; // ~0.1in — must match ciab-verify's overflow tolerance (TOL)
 
 /** Autofit scale for text estimated at `estHeight` in a box of `boxCy`. Returns
  *  null when it already fits (no shrink needed). Pure — unit-tested. */
@@ -269,13 +279,22 @@ function estimateTextHeight(shapeXml: string, widthEMU: number): number {
   const cpl = Math.max(8, Math.floor(widthEMU / charW));
   const paras = shapeXml.match(/<a:p>[\s\S]*?<\/a:p>/g) || [];
   let lines = 0.7; // base padding
+  // The template puts a real `spcBef` (space-before, in points) on every body
+  // paragraph — ~12pt each. That inter-paragraph spacing is a large fraction of a
+  // multi-paragraph section's height (5 paras ≈ 0.8in) and used to be MISSING from
+  // this estimate, so the GIF anchored ~this much too high and landed on the last
+  // "Your Move" line. Model it explicitly (per-paragraph) instead of faking it
+  // with an inflated blank-line factor, so the estimate tracks the real render.
+  let spcBefEmu = 0;
   for (const p of paras) {
     const t = [...p.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join("").replace(/\s+/g, " ").trim();
-    // Each paragraph is at least one line; a blank paragraph is a full spacer
-    // (LibreOffice/Slides render inter-paragraph gaps taller than a bare line).
-    lines += t === "" ? 1.3 : Math.max(1, Math.ceil([...t].length / cpl));
+    // Each paragraph is at least one line; a blank paragraph is one empty line
+    // (its inter-paragraph gap is now carried by the modeled spcBef below).
+    lines += t === "" ? 1.0 : Math.max(1, Math.ceil([...t].length / cpl));
+    const bef = p.match(/<a:spcBef>\s*<a:spcPts val="(\d+)"\/>/);
+    if (bef) spcBefEmu += (Number(bef[1]) / 100) * EMU_PER_PT;
   }
-  return Math.round(lines * lineH * autofitScale(shapeXml));
+  return Math.round((lines * lineH + spcBefEmu) * autofitScale(shapeXml));
 }
 
 /** Ensure a shape's text stays inside its box: if the estimated copy height
@@ -286,6 +305,23 @@ function applyAutofit(shapeXml: string, box: Geom): string {
   const af = computeAutofit(estimateTextHeight(shapeXml, box.cx), box.cy);
   if (!af) return shapeXml;
   const node = `<a:normAutofit fontScale="${af.fontScale}" lnSpcReduction="${af.lnSpcReduction}"/>`;
+  if (/<a:(no|norm|sp)Autofit\b[^>]*\/>/.test(shapeXml)) {
+    return shapeXml.replace(/<a:(no|norm|sp)Autofit\b[^>]*\/>/, node);
+  }
+  if (/<a:bodyPr\b[^>]*\/>/.test(shapeXml)) {
+    return shapeXml.replace(/<a:bodyPr\b([^>]*)\/>/, `<a:bodyPr$1>${node}</a:bodyPr>`);
+  }
+  if (/<a:bodyPr\b[^>]*>/.test(shapeXml)) {
+    return shapeXml.replace(/(<a:bodyPr\b[^>]*>)/, `$1${node}`);
+  }
+  return shapeXml;
+}
+
+/** Force a shape to NOT autofit — its text renders at its regular size and may
+ *  overflow rather than shrink. Used for slide 3's blog section, which must keep
+ *  the same font size as the rest of the deck. */
+function setNoAutofit(shapeXml: string): string {
+  const node = "<a:noAutofit/>";
   if (/<a:(no|norm|sp)Autofit\b[^>]*\/>/.test(shapeXml)) {
     return shapeXml.replace(/<a:(no|norm|sp)Autofit\b[^>]*\/>/, node);
   }
@@ -372,6 +408,7 @@ export function computeGifPlacement(
 
   let aboveBottom = GIF_TOP_LIMIT;
   let belowTop = SLIDE_H - BOTTOM_MARGIN;
+  let belowNeed = 0; // height the below-caption content needs at full size
   for (const s of geomTextShapes(slideXml)) {
     if (s.xml === captionXml) continue;
     const horizOverlap = !(s.box.x + s.box.cx < cap.x - 250000 || s.box.x > cap.x + cap.cx + 250000);
@@ -384,8 +421,16 @@ export function computeGifPlacement(
       const textBottom = s.box.y + estimateTextHeight(s.xml, s.box.cx);
       aboveBottom = Math.max(aboveBottom, textBottom);
     } else {
-      // Fixed content below — the GIF + caption must clear it.
+      // Content below — the GIF + caption must clear it. This content is snapped
+      // up to just under the moved caption (see injectGifs), so track how much
+      // height it needs so the GIF can yield room to it below.
       belowTop = Math.min(belowTop, s.box.y);
+      // Measure the FULL-SIZE need: fitContentShapes may have already autofit this
+      // section down to fit its short template box, which would scale the estimate
+      // down and hide how much room it actually wants. Strip that autofit first so
+      // the GIF yields enough room for the section to render at readable size.
+      const rawBelow = s.xml.replace(/<a:normAutofit[^>]*\/>/, "<a:normAutofit/>");
+      belowNeed = Math.max(belowNeed, estimateTextHeight(rawBelow, s.box.cx));
     }
   }
 
@@ -395,7 +440,20 @@ export function computeGifPlacement(
   // never below the 1in floor even if it means using a little of the bottom
   // margin. A GIF is always placed.
   let cy = Math.min(GIF_TARGET_H, band - CAP_GAP - cap.cy);
-  if (cy < GIF_FLOOR_H) cy = GIF_FLOOR_H;
+  // When content sits below the caption it snaps up to just under the moved
+  // caption, so the GIF must leave it enough room to render at a readable size.
+  // A long section (slide 3's first blog section) otherwise kept the GIF at full
+  // size and was autofit-shrunk tiny. Cap the GIF by what the section needs,
+  // never below the floor — a readable section beats a big GIF on a crowded slide.
+  if (belowNeed > 0) {
+    const cyForBelow =
+      SLIDE_H - BOTTOM_MARGIN - gifTop - CAP_GAP - cap.cy - GIF_SECTION_GAP - belowNeed;
+    cy = Math.min(cy, cyForBelow);
+  }
+  // Below-caption copy is kept at regular size, so let the GIF drop to the lower
+  // floor to make room; elsewhere hold the normal 1in floor.
+  const floor = belowNeed > 0 ? GIF_FLOOR_BELOW : GIF_FLOOR_H;
+  if (cy < floor) cy = floor;
 
   let cx = Math.round(cy / aspect);
   if (cx > GIF_MAX_W) {
@@ -407,9 +465,44 @@ export function computeGifPlacement(
   return { box: { x, y: gifTop, cx, cy }, captionY };
 }
 
-/** Move a caption shape to a new Y (preserving X). */
-function setCaptionY(shapeXml: string, y: number): string {
-  return shapeXml.replace(/<a:off x="(-?\d+)" y="-?\d+"\/>/, (_m, x) => `<a:off x="${x}" y="${y}"/>`);
+/**
+ * Style the "Via Giphy" caption: a small fixed box centered under the GIF, with
+ * its text locked to 10pt Arial. Keeps the caption compact and consistent across
+ * all 14 GIF slots (the template shipped a wide box with a mixed 10/18pt font).
+ */
+function styleCaption(shapeXml: string, gifCenterX: number, y: number): string {
+  const x = Math.round(gifCenterX - CAP_W / 2);
+  let s = shapeXml;
+  // Box: small, fixed size, centered under the GIF.
+  s = s.replace(/<a:off x="-?\d+" y="-?\d+"\/>/, `<a:off x="${x}" y="${y}"/>`);
+  s = s.replace(/<a:ext cx="\d+" cy="\d+"\/>/, `<a:ext cx="${CAP_W}" cy="${CAP_H}"/>`);
+  // Lock every run (and the trailing endParaRPr) to 10pt so the line height is
+  // tight and uniform — the template left an 18pt endParaRPr that inflated it.
+  s = s.replace(/(<a:(?:rPr|endParaRPr)\b[^>]*?)\bsz="\d+"/g, `$1sz="${CAP_FONT_SZ}"`);
+  // Force the Arial typeface on each run that doesn't already declare one.
+  s = s.replace(/<a:rPr\b((?:(?!<\/a:rPr>)[\s\S])*?)<\/a:rPr>/g, (m, inner) => {
+    if (/<a:latin\b/.test(inner)) return m;
+    const arial = '<a:latin typeface="Arial"/><a:cs typeface="Arial"/>';
+    return /<a:hlinkClick/.test(inner)
+      ? `<a:rPr${inner.replace(/<a:hlinkClick/, `${arial}<a:hlinkClick`)}</a:rPr>`
+      : `<a:rPr${inner}${arial}</a:rPr>`;
+  });
+  return s;
+}
+
+/**
+ * Remove the redundant per-paragraph `spcBef` from a body shape that already
+ * separates its paragraphs with blank lines. The template double-spaced these
+ * (a blank paragraph AND ~12pt space-before), which spread copy out and starved
+ * the GIF of room; blank lines alone give clean, tighter spacing.
+ */
+export function deDoubleSpace(shapeXml: string): string {
+  const paras = shapeXml.match(/<a:p>[\s\S]*?<\/a:p>/g) || [];
+  const hasBlank = paras.some(
+    (p) => [...p.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join("").trim() === "",
+  );
+  if (!hasBlank) return shapeXml; // single-block copy keeps its spacing
+  return shapeXml.replace(/<a:spcBef>\s*<a:spcPts val="\d+"\/>\s*<\/a:spcBef>/g, '<a:spcBef><a:spcPts val="0"/></a:spcBef>');
 }
 
 function buildPicXml(id: number, relId: string, name: string, box: { x: number; y: number; cx: number; cy: number }): string {
@@ -478,9 +571,51 @@ async function injectGifs(zip: JSZip, gifs: Partial<CiabGifs> | undefined): Prom
     if (!placement) continue;
     const { box, captionY } = placement;
 
-    // Move the "Via Giphy" caption to sit just below the GIF.
-    const movedCaption = setCaptionY(caption, captionY);
+    // Restyle the "Via Giphy" caption: 10pt Arial in a small box centered under
+    // the GIF, sitting just below it.
+    const movedCaption = styleCaption(caption, box.x + box.cx / 2, captionY);
     if (movedCaption !== caption) slideXml = slideXml.replace(caption, () => movedCaption);
+
+    // Reclaim the gap a rising caption leaves ABOVE content that sits below it.
+    // When the copy above the GIF is short, the caption rises to meet the GIF —
+    // but any content shape below the caption (the welcome list on slide 2, the
+    // blog section on slide 3) kept its low template Y, stranding dead space above
+    // it AND getting autofit-shrunk tiny in its short box. Snap such a shape up to
+    // just under the moved caption and regrow/re-autofit it into the taller berth.
+    const newCapBottom = captionY + capBox.cy;
+    for (const { xml: secXml, box: secBox } of geomTextShapes(slideXml)) {
+      if (secXml === movedCaption) continue;
+      if (secBox.y <= capBox.y) continue; // only shapes originally below the caption
+      const horizBand = !(
+        secBox.x + secBox.cx < capBox.x - 250000 || secBox.x > capBox.x + capBox.cx + 250000
+      );
+      if (!horizBand) continue;
+      const newTop = newCapBottom + GIF_SECTION_GAP;
+      if (newTop >= secBox.y) continue; // never push content DOWN, only reclaim gap
+      const newCy = Math.max(secBox.cy, SLIDE_H - BOTTOM_MARGIN - newTop);
+      let moved = secXml.replace(
+        /<a:off x="(-?\d+)" y="-?\d+"\/>/,
+        (_m, x) => `<a:off x="${x}" y="${newTop}"/>`,
+      );
+      moved = growBoxTo(moved, newCy);
+      // Keep this copy at its REGULAR size — never autofit-shrink it — so slide 3's
+      // blog section matches the font size of the intro and the rest of the deck.
+      // The GIF above was already sized (computeGifPlacement) to leave it full-size
+      // room, and the box grows to the bottom margin, so full-size copy fits. Only
+      // if the copy is so long it would still run off the slide do we fall back to
+      // autofit, purely to prevent it spilling off the bottom.
+      const fullSize = setNoAutofit(moved);
+      const est = estimateTextHeight(fullSize, secBox.cx);
+      // Keep full size while the copy fits the grown box within the verifier's
+      // overflow tolerance (VERIFY_TOL) — so placement and verify never disagree.
+      if (newTop + est <= SLIDE_H - BOTTOM_MARGIN + VERIFY_TOL) {
+        moved = fullSize;
+      } else {
+        moved = moved.replace(/<a:normAutofit[^>]*\/>/, "<a:normAutofit/>");
+        moved = applyAutofit(moved, { ...secBox, y: newTop, cy: newCy });
+      }
+      slideXml = slideXml.replace(secXml, () => moved);
+    }
 
     // Media + relationship
     const mediaName = `ciab-gif-slide${slide}.gif`;
@@ -527,6 +662,9 @@ export async function buildCiabDeckFromTemplate(
     for (const edit of [...slideEdits].sort((a, b) => b.shape - a.shape)) {
       xml = replaceShapeText(xml, edit.shape, edit.text, slideNum);
     }
+    // Drop the template's redundant double-spacing (blank line + 12pt-before) on
+    // multi-paragraph body copy — tighter, cleaner, and frees room for the GIF.
+    xml = xml.replace(/<p:sp\b[\s\S]*?<\/p:sp>/g, (sp) => deDoubleSpace(sp));
     // Keep long copy on the slide: grow + autofit any overflowing body box.
     xml = fitContentShapes(xml);
     zip.file(`ppt/slides/slide${slideNum}.xml`, xml);

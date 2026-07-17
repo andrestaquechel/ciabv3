@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { rectsOverlap, verifySlideXml } from "@/lib/pptx/ciab-verify";
+import { rectsOverlap, verifySlideXml, estimateTextHeightEMU } from "@/lib/pptx/ciab-verify";
 
 const W = 7772400;
 const H = 10058400;
+const EMU_PER_PT = 12700;
 
 function textShape(y: number, cy: number, text: string, autofit?: number) {
   const af = autofit != null ? `<a:normAutofit fontScale="${autofit}"/>` : "";
@@ -59,5 +60,27 @@ describe("verifySlideXml", () => {
     const xml = `<p:spTree>${textShape(1400000, 900000, "Copy", 55000)}</p:spTree>`;
     const v = verifySlideXml(6, xml, W, H);
     expect(v.some((x) => x.kind === "tiny-font")).toBe(true);
+  });
+});
+
+describe("estimateTextHeightEMU", () => {
+  const para = (text: string, spcBefPt?: number) => {
+    const bef = spcBefPt != null ? `<a:spcBef><a:spcPts val="${spcBefPt * 100}"/></a:spcBef>` : "";
+    return `<a:p><a:pPr>${bef}</a:pPr><a:r><a:rPr sz="1100"/><a:t>${text}</a:t></a:r></a:p>`;
+  };
+  const shape = (paras: string) =>
+    `<p:sp><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="6000000" cy="900000"/></a:xfrm></p:spPr>` +
+    `<p:txBody><a:bodyPr/>${paras}</p:txBody></p:sp>`;
+
+  it("adds each paragraph's spcBef (space-before) to the estimate", () => {
+    // Same three lines of copy; the only difference is 12pt space-before on each.
+    // The height must grow by exactly the total spcBef so the GIF anchors below
+    // the real, spacing-inclusive text extent (the slide-5/6 overlap fix).
+    const without = estimateTextHeightEMU(shape(para("Alpha") + para("Beta") + para("Gamma")), 6000000);
+    const withBef = estimateTextHeightEMU(
+      shape(para("Alpha", 12) + para("Beta", 12) + para("Gamma", 12)),
+      6000000,
+    );
+    expect(withBef - without).toBe(3 * 12 * EMU_PER_PT);
   });
 });

@@ -60,15 +60,21 @@ export function estimateTextHeightEMU(shapeXml: string, widthEMU: number): numbe
   const cpl = Math.max(8, Math.floor(widthEMU / charW));
   const paras = shapeXml.match(/<a:p>[\s\S]*?<\/a:p>/g) || [];
   let lines = 0.7;
+  // Must stay numerically identical to estimateTextHeight in
+  // ciab-template-export.ts: model each paragraph's real `spcBef` (space-before,
+  // in points) explicitly so verify and placement agree on where copy ends.
+  let spcBefEmu = 0;
   for (const p of paras) {
     const t = [...p.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)]
       .map((m) => m[1])
       .join("")
       .replace(/\s+/g, " ")
       .trim();
-    lines += t === "" ? 1.3 : Math.max(1, Math.ceil([...t].length / cpl));
+    lines += t === "" ? 1.0 : Math.max(1, Math.ceil([...t].length / cpl));
+    const bef = p.match(/<a:spcBef>\s*<a:spcPts val="(\d+)"\/>/);
+    if (bef) spcBefEmu += (Number(bef[1]) / 100) * EMU_PER_PT;
   }
-  return Math.round(lines * lineH * autofitScale(shapeXml));
+  return Math.round((lines * lineH + spcBefEmu) * autofitScale(shapeXml));
 }
 
 /** A shape whose only content is the "Via Giphy" caption — a fixed one-line

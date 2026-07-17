@@ -6,6 +6,8 @@ import {
   computeAutofit,
   computeGifPlacement,
   GIF_FLOOR_H,
+  GIF_FLOOR_BELOW,
+  deDoubleSpace,
 } from "@/lib/pptx/ciab-template-export";
 
 describe("stripLeadingBullets", () => {
@@ -92,6 +94,25 @@ const CAPTION_XML =
   `<p:txBody><a:bodyPr/><a:p><a:r><a:t>Via Giphy</a:t></a:r></a:p></p:txBody></p:sp>`;
 const CAP = { x: 600000, y: 1500000, cx: 6000000, cy: 200000 };
 
+describe("deDoubleSpace", () => {
+  const para = (text: string, spcBef = 1200) =>
+    `<a:p><a:pPr><a:spcBef><a:spcPts val="${spcBef}"/></a:spcBef></a:pPr>` +
+    (text ? `<a:r><a:t>${text}</a:t></a:r>` : "") +
+    `</a:p>`;
+  const shape = (paras: string) => `<p:sp><p:txBody><a:bodyPr/>${paras}</p:txBody></p:sp>`;
+
+  it("zeroes spcBef when the shape separates paragraphs with a blank line", () => {
+    const out = deDoubleSpace(shape(para("Heading") + para("") + para("Body")));
+    expect(out).not.toMatch(/val="1200"/);
+    expect((out.match(/<a:spcPts val="0"\/>/g) || []).length).toBe(3);
+  });
+
+  it("leaves single-block copy (no blank paragraph) untouched", () => {
+    const single = shape(para("Line one") + para("Line two"));
+    expect(deDoubleSpace(single)).toBe(single);
+  });
+});
+
 describe("computeGifPlacement", () => {
   it("always returns a placement (never skips the GIF)", () => {
     const xml = slide(1300000, 200000, "Short body");
@@ -105,13 +126,23 @@ describe("computeGifPlacement", () => {
     expect(p.box.cy).toBe(GIF_TARGET_H);
   });
 
-  it("floors at 1in rather than skipping when the band is tiny", () => {
+  it("floors (never skips) at the lower below-caption floor when content sits below", () => {
     // A fixed shape immediately below the caption squeezes the band negative.
+    // Below-caption copy is kept full-size, so the GIF yields to the lower floor.
     const below =
       `<p:sp><p:spPr><a:xfrm><a:off x="600000" y="1900000"/>` +
       `<a:ext cx="6000000" cy="200000"/></a:xfrm></p:spPr>` +
       `<p:txBody><a:bodyPr/><a:p><a:r><a:t>Fixed footer</a:t></a:r></a:p></p:txBody></p:sp>`;
     const xml = slide(1300000, 200000, "Short body", below);
+    const p = computeGifPlacement(xml, CAPTION_XML, CAP, 480, 270)!;
+    expect(p.box.cy).toBe(GIF_FLOOR_BELOW);
+  });
+
+  it("holds the 1in floor when nothing sits below the caption", () => {
+    // Long copy above the caption pushes the GIF anchor down so the band is tiny,
+    // but with NO content below the caption the GIF holds the normal 1in floor.
+    const longBody = "word ".repeat(300);
+    const xml = slide(1300000, 200000, longBody);
     const p = computeGifPlacement(xml, CAPTION_XML, CAP, 480, 270)!;
     expect(p.box.cy).toBe(GIF_FLOOR_H);
   });
