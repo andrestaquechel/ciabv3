@@ -17,10 +17,6 @@ function parseSlackBody(rawBody: string, contentType: string | null) {
   return Object.fromEntries(new URLSearchParams(rawBody));
 }
 
-function appBaseUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://ciabv2-gilt.vercel.app";
-}
-
 const HELP_TEXT = `*Mini Box slash commands*
 • \`/mini-box topics\` — research 6 topic candidates (same as @CIAB_Slack_App topics)
 • \`/mini-box help\` — show this message
@@ -77,7 +73,6 @@ export async function POST(request: Request) {
       outline: outlineResult.outline,
     });
 
-    let openUrl = `${appBaseUrl()}/builder/new?topic=${encodeURIComponent(topic)}&autoGenerate=1`;
     const draftId = randomUUID();
     try {
       await saveGeneratedDraftToDrive({
@@ -89,9 +84,8 @@ export async function POST(request: Request) {
         outline: outlineResult.outline,
         sections: full.sections,
       });
-      openUrl = `${appBaseUrl()}/builder/new?draft=${draftId}`;
     } catch {
-      // fall back
+      // best-effort record; the draft content is still returned below
     }
 
     const introPreview = full.sections.welcome.intro.slice(0, 280);
@@ -104,13 +98,6 @@ export async function POST(request: Request) {
           text: {
             type: "mrkdwn",
             text: `*Mini Box generated:* ${topic}\n\n*Angle:* ${outlineResult.outline.angle}\n\n*Welcome preview:*\n${introPreview}${full.sections.welcome.intro.length > 280 ? "…" : ""}`,
-          },
-        },
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `<${openUrl}|Open in Box Studio>`,
           },
         },
       ],

@@ -21,10 +21,6 @@ import {
 import { finalDraftBlocks } from "@/lib/slack/blocks";
 import { saveSlackWorkflowToDrive } from "@/lib/box-studio-drive-data";
 
-function appBaseUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://ciabv2-gilt.vercel.app";
-}
-
 function feedbackFromThread(
   messages: Array<{ ts: string; user?: string; text?: string; bot_id?: string }>,
   botUserId?: string,
@@ -156,11 +152,10 @@ Return JSON: { "sections": { "welcome": {...}, "onePager": {...}, "chat": {...} 
   workflow.updatedAt = new Date().toISOString();
   await saveSlackWorkflowToDrive(workflow);
 
-  const openUrl = `${appBaseUrl()}/builder/new?draft=${workflow.draftId}`;
   await slackPostMessage({
     channel,
     threadTs,
     text: `Final Mini Box draft ready: ${doc.topic}`,
-    blocks: finalDraftBlocks(doc.topic, openUrl),
+    blocks: finalDraftBlocks(doc.topic),
   });
 }

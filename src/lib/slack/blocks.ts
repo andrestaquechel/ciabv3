@@ -170,46 +170,99 @@ export function formatOutlineSlack(
     .join("\n");
 }
 
-export function outlineReviewBlocks(workflowId: string, outlineText: string) {
-  return [
-    ...mrkdwnSections(outlineText),
-    {
-      type: "actions",
-      elements: [
-        {
-          type: "button",
-          action_id: `approve_outline:${workflowId}`,
-          text: { type: "plain_text", text: "Approve outline → generate full box", emoji: true },
-          style: "primary",
-        },
-        {
-          type: "button",
-          action_id: `regenerate_outline:${workflowId}`,
-          text: { type: "plain_text", text: "Regenerate outline", emoji: true },
-        },
-      ],
-    },
-  ];
+/** One-paragraph summary of the outline for the Slack thread. The full outline
+ *  lives in the linked "Mini Box Outline" doc. */
+export function outlineSummarySlack(
+  topic: string,
+  outline: import("@/lib/mini-box-prompts").MiniBoxOutline | string,
+): string {
+  const firstSentences = (text: string, n = 2): string => {
+    const parts = text.trim().replace(/\s+/g, " ").match(/[^.!?]+[.!?]+|\S[^.!?]*$/g) || [];
+    return parts.slice(0, n).join(" ").trim();
+  };
+  if (typeof outline === "object" && outline && "welcome" in outline && outline.welcome) {
+    const summary = outline.angle?.trim() || firstSentences(outline.welcome.intro || "");
+    return `*Mini Box outline — ${outline.topic || topic}*\n\n${summary}`;
+  }
+  const text = typeof outline === "string" ? outline : "";
+  const summary = firstSentences(text) || "Outline ready.";
+  return `*Mini Box outline — ${topic}*\n\n${summary}`;
 }
 
-export function fullBoxReadyBlocks(
+/** Full outline rendered as HTML for the "Mini Box Outline" Google Doc. */
+export function outlineToHtml(
   topic: string,
-  openUrl: string,
-  welcomePreview: string,
+  outline: import("@/lib/mini-box-prompts").MiniBoxOutline | string,
+): string {
+  const esc = (v: unknown): string =>
+    String(v ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  const p = (v: unknown): string => (String(v ?? "").trim() ? `<p>${esc(v)}</p>` : "");
+
+  if (typeof outline === "object" && outline && "welcome" in outline && outline.welcome) {
+    const o = outline;
+    return [
+      `<h1>Mini Box Outline — ${esc(o.topic || topic)}</h1>`,
+      o.angle ? `<p><em>${esc(o.angle)}</em></p>` : "",
+      `<h2>Welcome (for Program Owners)</h2>`,
+      p(o.welcome?.intro),
+      p(o.welcome?.contents),
+      p(o.welcome?.closing),
+      `<h2>One-Pager / Email</h2>`,
+      o.onePager?.subjectLine ? `<p><strong>Subject:</strong> ${esc(o.onePager.subjectLine)}</p>` : "",
+      p(o.onePager?.greeting),
+      p(o.onePager?.bodyPart1),
+      o.onePager?.callout ? `<p><strong>Callout:</strong> ${esc(o.onePager.callout)}</p>` : "",
+      p(o.onePager?.bodyPart2),
+      `<h2>Chat Message</h2>`,
+      p(o.chat?.message),
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  return `<h1>Mini Box Outline — ${esc(topic)}</h1><pre>${esc(outline)}</pre>`;
+}
+
+export function outlineReviewBlocks(
+  workflowId: string,
+  summaryText: string,
+  docLink?: string,
 ) {
+  const blocks: unknown[] = [...mrkdwnSections(summaryText)];
+  if (docLink) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `📄 <${docLink}|Mini Box Outline> — full outline` },
+    });
+  }
+  blocks.push({
+    type: "actions",
+    elements: [
+      {
+        type: "button",
+        action_id: `approve_outline:${workflowId}`,
+        text: { type: "plain_text", text: "Approve outline → generate full box", emoji: true },
+        style: "primary",
+      },
+      {
+        type: "button",
+        action_id: `regenerate_outline:${workflowId}`,
+        text: { type: "plain_text", text: "Regenerate outline", emoji: true },
+      },
+    ],
+  });
+  return blocks;
+}
+
+export function fullBoxReadyBlocks(topic: string, welcomePreview: string) {
   return [
     {
       type: "section",
       text: {
         type: "mrkdwn",
         text: `*Full Mini Box generated:* ${topic}\n\n*Welcome preview:*\n${welcomePreview}${welcomePreview.length >= 280 ? "…" : ""}`,
-      },
-    },
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `<${openUrl}|Open in Box Studio>`,
       },
     },
   ];
@@ -271,13 +324,13 @@ export function csmReviewBlocks(
   return blocks;
 }
 
-export function finalDraftBlocks(topic: string, openUrl: string) {
+export function finalDraftBlocks(topic: string) {
   return [
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*Final Mini Box:* ${topic}\nCSM feedback applied. Final PPTX attached above.\n<${openUrl}|Open in Box Studio to publish>`,
+        text: `*Final Mini Box:* ${topic}\nCSM feedback applied. Final PPTX attached above.`,
       },
     },
   ];

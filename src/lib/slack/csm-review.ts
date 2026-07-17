@@ -29,7 +29,7 @@ export async function startCsmReview({
     await slackPostMessage({
       channel,
       threadTs,
-      text: "No draft saved — CSM review skipped. Open Box Studio to export manually.",
+      text: "No draft saved — CSM review skipped. Re-run the box to try again.",
     });
     return;
   }
@@ -79,7 +79,7 @@ export async function startCsmReview({
     await slackPostMessage({
       channel,
       threadTs,
-      text: `⚠️ Could not create the Google Slides deck automatically${uploadError ? `: ${uploadError.slice(0, 300)}` : ""}. Open the box in Box Studio to export it manually.`,
+      text: `⚠️ Could not create the Google Slides deck automatically${uploadError ? `: ${uploadError.slice(0, 300)}` : ""}. Tap *Regenerate* to retry.`,
     });
   }
 

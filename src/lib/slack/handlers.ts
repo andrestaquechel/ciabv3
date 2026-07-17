@@ -32,6 +32,8 @@ import {
   formatOutlineSlack,
   fullBoxReadyBlocks,
   outlineReviewBlocks,
+  outlineSummarySlack,
+  outlineToHtml,
   topicCandidatesBlocks,
 } from "@/lib/slack/blocks";
 import { topicCandidatesTableBlocks } from "@/lib/slack/newbox-blocks";
@@ -68,10 +70,6 @@ type SlackEvent = {
   challenge?: string;
   event?: SlackMessageEvent;
 };
-
-function appBaseUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://ciabv2-gilt.vercel.app";
-}
 
 function topicNotes(candidate: TopicCandidate) {
   return [
@@ -434,7 +432,7 @@ export async function runTopicResearchForMonth({
     await slackPostMessage({
       channel,
       threadTs,
-      text: `Mini Box topics for ${monthLabel} ready — open Box Studio or retry; Slack could not render the full table (${err instanceof Error ? err.message : "block error"}).`,
+      text: `Mini Box topics for ${monthLabel} ready — please retry; Slack could not render the full table (${err instanceof Error ? err.message : "block error"}).`,
     });
   });
 
@@ -483,12 +481,29 @@ export async function generateAndPostOutline({
   workflow.status = "outline";
   await persistWorkflow(workflow);
 
-  const outlineText = formatOutlineSlack(topic, outlineResult.outline);
+  // Post a one-paragraph summary in-thread; the full outline goes in a linked
+  // "Mini Box Outline" Google Doc. If the doc upload fails, fall back to posting
+  // the full outline inline so review is never blocked.
+  const summaryText = outlineSummarySlack(topic, outlineResult.outline);
+  let docLink: string | undefined;
+  try {
+    const { uploadHtmlAsGoogleDoc } = await import("@/lib/google-drive-doc");
+    const uploaded = await uploadHtmlAsGoogleDoc({
+      html: outlineToHtml(topic, outlineResult.outline),
+      name: `Mini Box Outline — ${topic}`,
+    });
+    docLink = uploaded.webViewLink;
+  } catch (err) {
+    console.error("Mini Box outline doc upload failed:", err);
+  }
+
   await slackPostMessage({
     channel,
     threadTs,
     text: "Outline ready for review.",
-    blocks: outlineReviewBlocks(workflow.id, outlineText),
+    blocks: docLink
+      ? outlineReviewBlocks(workflow.id, summaryText, docLink)
+      : outlineReviewBlocks(workflow.id, formatOutlineSlack(topic, outlineResult.outline)),
   });
 }
 
@@ -571,16 +586,12 @@ export async function generateAndPostFullBox({
   workflow.status = "full_draft";
   await persistWorkflow(workflow);
 
-  const openUrl = workflow.draftId
-    ? `${appBaseUrl()}/builder/new?draft=${workflow.draftId}`
-    : `${appBaseUrl()}/builder/new?topic=${encodeURIComponent(boxTitle)}&autoGenerate=1`;
-
   const welcomePreview = full.sections.welcome.intro.slice(0, 280);
   await slackPostMessage({
     channel,
     threadTs,
     text: `Full Mini Box ready: ${boxTitle}`,
-    blocks: fullBoxReadyBlocks(boxTitle, openUrl, welcomePreview),
+    blocks: fullBoxReadyBlocks(boxTitle, welcomePreview),
   });
 
   if (full.note) {
