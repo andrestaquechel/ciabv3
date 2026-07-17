@@ -15,6 +15,10 @@ export type CiabJob =
       channel: string;
       threadTs?: string;
     }
+  // Second half of concept-select: build the outline from already-researched
+  // sources. Split into its own invocation so neither half runs long enough to
+  // be killed as a post-response background task.
+  | { step: "outline"; workflowId: string; channel: string; threadTs?: string }
   | { step: "outline-regenerate"; workflowId: string; channel: string; threadTs?: string }
   | {
       step: "outline-approve";

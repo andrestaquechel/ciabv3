@@ -51,6 +51,10 @@ type AnthropicMessageParams = {
   webSearch?: boolean;
   /** Max number of web searches the model may run for one request. */
   webSearchMaxUses?: number;
+  /** Abort the request after this many ms. Defaults to 240s — long enough for
+   *  Opus + web search, short enough to fail with a catchable error before a
+   *  300s serverless function is killed (which would leave no error to report). */
+  timeoutMs?: number;
 };
 
 /** Anthropic server-side web search tool (generally available). */
@@ -62,6 +66,59 @@ function webSearchTool(maxUses: number) {
   };
 }
 
+const DEFAULT_ANTHROPIC_TIMEOUT_MS = 240_000;
+/** Transient HTTP statuses worth one retry (rate limit / overloaded / gateway). */
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 529]);
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** POST to the Anthropic API with a hard per-attempt timeout and a single retry
+ *  on transient errors. A timeout (AbortError) is NOT retried — retrying could
+ *  push a serverless invocation past its maxDuration wall. */
+async function anthropicFetch(
+  body: Record<string, unknown>,
+  apiKey: string,
+  timeoutMs: number,
+): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(ANTHROPIC_API_URL, {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (RETRYABLE_STATUS.has(res.status) && attempt === 0) {
+        await sleep(1500);
+        continue;
+      }
+      return res;
+    } catch (err) {
+      // Timeout / abort is terminal — surface it so the caller can report it.
+      if (err instanceof Error && err.name === "TimeoutError") {
+        throw new Error(
+          `Anthropic request timed out after ${Math.round(timeoutMs / 1000)}s.`,
+        );
+      }
+      lastErr = err;
+      if (attempt === 0) {
+        await sleep(1500);
+        continue;
+      }
+    }
+  }
+  throw new Error(
+    `Anthropic request failed: ${lastErr instanceof Error ? lastErr.message : "network error"}`,
+  );
+}
+
 export async function anthropicText({
   system,
   user,
@@ -70,6 +127,7 @@ export async function anthropicText({
   model,
   webSearch = false,
   webSearchMaxUses = 5,
+  timeoutMs = DEFAULT_ANTHROPIC_TIMEOUT_MS,
 }: AnthropicMessageParams): Promise<string> {
   const apiKey = getAnthropicApiKey();
   if (!apiKey) {
@@ -93,15 +151,7 @@ export async function anthropicText({
     body.tools = [webSearchTool(webSearchMaxUses)];
   }
 
-  const res = await fetch(ANTHROPIC_API_URL, {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const res = await anthropicFetch(body, apiKey, timeoutMs);
 
   if (!res.ok) {
     const errText = await res.text();

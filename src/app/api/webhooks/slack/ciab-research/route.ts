@@ -3,9 +3,11 @@ import type { CiabJob } from "@/lib/slack/ciab-job";
 import {
   handleCiabStart,
   handleCiabConceptSelection,
+  handleCiabOutline,
   handleCiabOutlineRegenerate,
   handleCiabOutlineApproval,
 } from "@/lib/slack/ciab-handlers";
+import { slackPostMessage } from "@/lib/slack/api";
 
 export const runtime = "nodejs";
 // CIAB research runs Claude Opus + server-side web search, which regularly takes
@@ -33,6 +35,13 @@ async function runCiabJob(job: CiabJob): Promise<void> {
       await handleCiabConceptSelection({
         workflowId: job.workflowId,
         conceptId: job.conceptId,
+        channel: job.channel,
+        threadTs: job.threadTs,
+      });
+      return;
+    case "outline":
+      await handleCiabOutline({
+        workflowId: job.workflowId,
         channel: job.channel,
         threadTs: job.threadTs,
       });
@@ -85,6 +94,16 @@ export async function POST(request: Request) {
       await runCiabJob(job);
     } catch (err) {
       console.error("Background CIAB job failed:", err);
+      // Never leave the Slack thread hanging silently — report the failure.
+      try {
+        await slackPostMessage({
+          channel: job.channel,
+          threadTs: job.threadTs,
+          text: `⚠️ CIAB \`${job.step}\` step failed: ${err instanceof Error ? err.message : "unknown error"}`,
+        });
+      } catch (postErr) {
+        console.error("Failed to post CIAB error to Slack:", postErr);
+      }
     }
   });
 

@@ -32,6 +32,11 @@ import {
   renderCiabOutlineHtml,
 } from "@/lib/ciab-document";
 import { uploadHtmlAsGoogleDoc } from "@/lib/google-drive-doc";
+import { dispatchCiabJob } from "@/lib/slack/ciab-job";
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : "unknown error";
+}
 
 async function persist(workflow: SlackWorkflowRecord) {
   workflow.updatedAt = new Date().toISOString();
@@ -113,7 +118,11 @@ export async function handleCiabStart({
 /* Step 2 — concept → sources → outline                                */
 /* ------------------------------------------------------------------ */
 
-export async function generateAndPostCiabOutline({
+/** First half: research sources, then hand off outline drafting to a fresh
+ *  invocation. Splitting keeps each background job short enough to survive as a
+ *  post-response task (sources + outline together ran ~180-260s and were being
+ *  killed silently). */
+export async function generateAndPostCiabSources({
   workflow,
   channel,
   threadTs,
@@ -128,17 +137,73 @@ export async function generateAndPostCiabOutline({
   await slackPostMessage({
     channel,
     threadTs,
-    text: `Researching sources for *${concept.title}* and building the stakeholder outline…`,
+    text: `Researching sources for *${concept.title}*…`,
   });
 
-  const sourcesResult = await generateCiabSources({ concept });
+  let sourcesResult;
+  try {
+    sourcesResult = await generateCiabSources({ concept });
+  } catch (err) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `⚠️ Source research failed: ${errMessage(err)}\nTap *Regenerate outline* to retry.`,
+    });
+    return;
+  }
+
   workflow.ciabSources = sourcesResult.sources;
+  workflow.status = "ciab_outline";
   await persist(workflow);
 
-  const outlineResult = await generateCiabOutline({
-    concept,
-    sources: sourcesResult.sources,
+  if (sourcesResult.note) {
+    await slackPostMessage({ channel, threadTs, text: sourcesResult.note });
+  }
+
+  await slackPostMessage({
+    channel,
+    threadTs,
+    text: `Found ${sourcesResult.sources.length} vetted source${sourcesResult.sources.length === 1 ? "" : "s"} — drafting the stakeholder outline…`,
   });
+
+  // Hand the outline off to its own invocation so this job ends now.
+  try {
+    await dispatchCiabJob({ step: "outline", workflowId: workflow.id, channel, threadTs });
+  } catch (err) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `⚠️ Could not start the outline step: ${errMessage(err)}\nTap *Regenerate outline* to retry.`,
+    });
+  }
+}
+
+/** Second half: build + post the outline from already-researched sources. */
+export async function generateAndPostCiabOutlineFromSources({
+  workflow,
+  channel,
+  threadTs,
+}: {
+  workflow: SlackWorkflowRecord;
+  channel: string;
+  threadTs?: string;
+}) {
+  const concept = workflow.selectedConcept;
+  if (!concept) throw new Error("No concept selected.");
+  const sources = workflow.ciabSources || [];
+
+  let outlineResult;
+  try {
+    outlineResult = await generateCiabOutline({ concept, sources });
+  } catch (err) {
+    await slackPostMessage({
+      channel,
+      threadTs,
+      text: `⚠️ Outline drafting failed: ${errMessage(err)}\nTap *Regenerate outline* to retry.`,
+    });
+    return;
+  }
+
   workflow.ciabOutline = outlineResult.outline;
   workflow.status = "ciab_outline";
   await persist(workflow);
@@ -163,8 +228,9 @@ export async function generateAndPostCiabOutline({
     blocks: ciabOutlineReviewBlocks(workflow.id, preview, docUrl),
   });
 
-  const notes = [sourcesResult.note, outlineResult.note].filter(Boolean).join(" ");
-  if (notes) await slackPostMessage({ channel, threadTs, text: notes });
+  if (outlineResult.note) {
+    await slackPostMessage({ channel, threadTs, text: outlineResult.note });
+  }
 }
 
 export async function handleCiabConceptSelection({
@@ -199,7 +265,25 @@ export async function handleCiabConceptSelection({
     text: `Selected *${concept.title}* — researching sources and drafting the outline…`,
   });
 
-  await generateAndPostCiabOutline({ workflow, channel, threadTs });
+  await generateAndPostCiabSources({ workflow, channel, threadTs });
+}
+
+/** Runs the outline half in its own invocation (dispatched by the sources step). */
+export async function handleCiabOutline({
+  workflowId,
+  channel,
+  threadTs,
+}: {
+  workflowId: string;
+  channel: string;
+  threadTs?: string;
+}) {
+  const workflow = await loadSlackWorkflowFromDrive(workflowId);
+  if (!workflow?.selectedConcept) {
+    await slackPostMessage({ channel, threadTs, text: "Workflow not found. Start the CIAB again." });
+    return;
+  }
+  await generateAndPostCiabOutlineFromSources({ workflow, channel, threadTs });
 }
 
 export async function handleCiabOutlineRegenerate({
@@ -216,7 +300,13 @@ export async function handleCiabOutlineRegenerate({
     await slackPostMessage({ channel, threadTs, text: "Workflow not found. Start the CIAB again." });
     return;
   }
-  await generateAndPostCiabOutline({ workflow, channel, threadTs });
+  // Reuse already-researched sources when present; otherwise re-run the full
+  // sources → outline chain.
+  if (workflow.ciabSources?.length) {
+    await generateAndPostCiabOutlineFromSources({ workflow, channel, threadTs });
+  } else {
+    await generateAndPostCiabSources({ workflow, channel, threadTs });
+  }
 }
 
 /* ------------------------------------------------------------------ */
