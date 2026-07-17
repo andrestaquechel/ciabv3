@@ -63,9 +63,9 @@ describe("pickVariedUnusedGif", () => {
     expect(pick!.id).toBe("d");
   });
 
-  it("falls back to the top candidate when everything is used", () => {
+  it("returns null when every candidate is used (never repeats a GIF)", () => {
     const used = new Set<string>(["a", "b"]);
-    expect(pickVariedUnusedGif([g("a"), g("b")], used, 5)!.id).toBe("a");
+    expect(pickVariedUnusedGif([g("a"), g("b")], used, 5)).toBeNull();
   });
 
   it("returns null for an empty candidate list", () => {

@@ -50,6 +50,15 @@ const STOPWORDS = new Set([
   "who", "new", "get", "got", "are", "and", "for", "you", "our", "out",
 ]);
 
+/** Broad, distinct reaction terms used to re-search for a fresh GIF when a slot's
+ *  content-derived pool is already fully used elsewhere in the deck — rotated by
+ *  slot so the fallback pulls different GIFs rather than repeating one. */
+const GIF_FALLBACK_TERMS = [
+  "reaction", "surprised", "thinking face", "facepalm", "warning", "computer",
+  "office reaction", "shocked", "nervous", "typing", "phone alert", "hacker",
+  "celebrate", "confused",
+];
+
 /** Pull a few salient keywords from free text to shape a GIF search query. */
 function keywords(text: string, max = 4): string[] {
   const seen = new Set<string>();
@@ -155,7 +164,11 @@ export function pickVariedUnusedGif(
   const order: NonNullable<GifSelection>[] = [];
   for (let i = 0; i < topN; i += 1) order.push(ranked[(start + i) % topN]);
   order.push(...ranked.slice(topN));
-  const fresh = order.find((g) => !used.has(g.id)) ?? ranked[0];
+  // Return ONLY an unused candidate — never an already-used one. Returning null
+  // when the pool is exhausted lets the caller fetch fresh GIFs instead of
+  // repeating one (the source of the in-deck duplicate GIFs).
+  const fresh = order.find((g) => !used.has(g.id));
+  if (!fresh) return null;
   used.add(fresh.id);
   return fresh;
 }
@@ -256,12 +269,23 @@ export async function pickCiabGifs(topic: string, content: CiabGifContent) {
     text: string | undefined,
     fallbackSuffix: string,
   ): Promise<NonNullable<GifSelection>> => {
-    const ranked = await rankedGifsFor(topic, text, fallbackSuffix);
     // Seed by topic + slot so the same query resolves to a DIFFERENT top
     // candidate in a different deck (cross-deck variety) and per slot (in-deck).
     const seed = hash(`${topic}:${slot}`);
+    const s = slot;
     slot += 1;
-    return pickVariedUnusedGif(ranked, used, seed) ?? mockFallback();
+    let g = pickVariedUnusedGif(await rankedGifsFor(topic, text, fallbackSuffix), used, seed);
+    if (!g) {
+      // The primary pool was fully claimed by earlier slots. Broaden with a
+      // slot-varied query to pull DIFFERENT real GIFs rather than repeat one.
+      const alt = GIF_FALLBACK_TERMS[s % GIF_FALLBACK_TERMS.length];
+      g = pickVariedUnusedGif(
+        await searchGiphyRanked(`${topic} ${alt}`, keywords(`${topic} ${alt}`, 4)),
+        used,
+        seed,
+      );
+    }
+    return g ?? mockFallback();
   };
 
   // Sequential so each pick sees the ids already claimed by earlier slots.
