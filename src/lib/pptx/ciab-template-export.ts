@@ -245,12 +245,17 @@ export function computeAutofit(
 
 type Geom = { x: number; y: number; cx: number; cy: number };
 
-/** All text shapes on a slide that carry explicit geometry. */
+/** All NON-EMPTY text shapes on a slide that carry explicit geometry. Empty
+ *  placeholders (an <a:t> tag but no copy — the template leaves some, e.g. below
+ *  the week-4 email caption) are skipped: they must not constrain GIF placement
+ *  or count as content below the caption, which shrank that email's GIF tiny. */
 function geomTextShapes(slideXml: string): Array<{ xml: string; box: Geom }> {
   const shapes = slideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || [];
   const out: Array<{ xml: string; box: Geom }> = [];
   for (const s of shapes) {
     if (!/<a:t[\s>]/.test(s)) continue;
+    const text = [...s.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join("").trim();
+    if (!text) continue;
     const box = readOffExt(s);
     if (box) out.push({ xml: s, box });
   }

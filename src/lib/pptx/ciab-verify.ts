@@ -89,6 +89,10 @@ function textShapes(slideXml: string): { xml: string; box: Rect }[] {
   for (const s of slideXml.match(/<p:sp\b[\s\S]*?<\/p:sp>/g) || []) {
     if (!/<a:t[\s>]/.test(s)) continue;
     if (isCaption(s)) continue;
+    // Skip empty placeholders (matches geomTextShapes in ciab-template-export):
+    // a blank <a:t> shape is not content and must not drive overflow/overlap checks.
+    const text = [...s.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join("").trim();
+    if (!text) continue;
     const box = readRect(s);
     if (box) out.push({ xml: s, box });
   }

@@ -86,7 +86,9 @@ export async function searchGiphyRanked(
   const url = new URL("https://api.giphy.com/v1/gifs/search");
   url.searchParams.set("api_key", apiKey);
   url.searchParams.set("q", query);
-  url.searchParams.set("limit", "25");
+  // A deep pool so slots (14 in a CIAB deck) and repeat decks have room to land
+  // on DISTINCT GIFs instead of everyone grabbing Giphy's single top hit.
+  url.searchParams.set("limit", "50");
   url.searchParams.set("rating", "pg-13");
   url.searchParams.set("lang", "en");
 
@@ -133,6 +135,31 @@ export function pickUnusedGif(
   return fresh;
 }
 
+/**
+ * Like pickUnusedGif, but spreads picks across the top relevant candidates using
+ * a per-slot `seed` instead of always taking Giphy's #1 hit. This is what keeps
+ * GIFs distinct BOTH within a deck (the `used` set) and ACROSS decks (a different
+ * topic/slot seed rotates into a different — but still relevant — top candidate,
+ * so similar queries stop resolving to the same popular GIF everywhere). Pure.
+ */
+export function pickVariedUnusedGif(
+  ranked: NonNullable<GifSelection>[],
+  used: Set<string>,
+  seed: number,
+): NonNullable<GifSelection> | null {
+  if (!ranked.length) return null;
+  // Rotate a window over the top candidates by the seed, then fall through to the
+  // rest of the pool so in-deck uniqueness still holds when the window is taken.
+  const topN = Math.min(ranked.length, 15);
+  const start = (((seed % topN) + topN) % topN) | 0;
+  const order: NonNullable<GifSelection>[] = [];
+  for (let i = 0; i < topN; i += 1) order.push(ranked[(start + i) % topN]);
+  order.push(...ranked.slice(topN));
+  const fresh = order.find((g) => !used.has(g.id)) ?? ranked[0];
+  used.add(fresh.id);
+  return fresh;
+}
+
 function hash(s: string) {
   let h = 0;
   for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) | 0;
@@ -166,15 +193,18 @@ export async function pickMiniBoxGifs(topic: string, content?: MiniBoxGifContent
     ? keywords(chatText, 5).join(" ") || `${topic} reaction`
     : `${topic} reaction`;
 
-  const [welcome, onePager, chat] = await Promise.all([
-    searchGiphy(welcomeQuery, keywords(`${topic} ${welcomeText || ""}`, 6)),
-    searchGiphy(onePagerQuery, keywords(`${topic} ${onePagerText || ""}`, 6)),
-    searchGiphy(chatQuery, keywords(`${chatText || topic}`, 6)),
+  const [welcomeRanked, onePagerRanked, chatRanked] = await Promise.all([
+    searchGiphyRanked(welcomeQuery, keywords(`${topic} ${welcomeText || ""}`, 6)),
+    searchGiphyRanked(onePagerQuery, keywords(`${topic} ${onePagerText || ""}`, 6)),
+    searchGiphyRanked(chatQuery, keywords(`${chatText || topic}`, 6)),
   ]);
+  // Distinct across the 3 slots (used set) and across decks (topic+slot seed) —
+  // previously each slot blindly took its query's #1 hit, so boxes repeated GIFs.
+  const used = new Set<string>();
   return {
-    welcome: welcome || MOCK_GIFS[0],
-    onePager: onePager || MOCK_GIFS[1],
-    chat: chat || MOCK_GIFS[2],
+    welcome: pickVariedUnusedGif(welcomeRanked, used, hash(`${topic}:0`)) || MOCK_GIFS[0],
+    onePager: pickVariedUnusedGif(onePagerRanked, used, hash(`${topic}:1`)) || MOCK_GIFS[1],
+    chat: pickVariedUnusedGif(chatRanked, used, hash(`${topic}:2`)) || MOCK_GIFS[2],
   };
 }
 
@@ -221,12 +251,17 @@ export async function pickCiabGifs(topic: string, content: CiabGifContent) {
     mockCursor += 1;
     return { ...pick, id, query: topic };
   };
+  let slot = 0;
   const pick = async (
     text: string | undefined,
     fallbackSuffix: string,
   ): Promise<NonNullable<GifSelection>> => {
     const ranked = await rankedGifsFor(topic, text, fallbackSuffix);
-    return pickUnusedGif(ranked, used) ?? mockFallback();
+    // Seed by topic + slot so the same query resolves to a DIFFERENT top
+    // candidate in a different deck (cross-deck variety) and per slot (in-deck).
+    const seed = hash(`${topic}:${slot}`);
+    slot += 1;
+    return pickVariedUnusedGif(ranked, used, seed) ?? mockFallback();
   };
 
   // Sequential so each pick sees the ids already claimed by earlier slots.
