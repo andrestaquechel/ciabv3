@@ -71,14 +71,16 @@ function scoreGif(gif: GiphyGif, terms: string[]): number {
   return score;
 }
 
-export async function searchGiphy(
+/** Ranked list of candidate GIFs for a query (best first). Used so callers can
+ *  pick the top result that has not already been used elsewhere in the deck. */
+export async function searchGiphyRanked(
   query: string,
   intentTerms?: string[],
-): Promise<NonNullable<GifSelection> | null> {
+): Promise<NonNullable<GifSelection>[]> {
   const apiKey = process.env.GIPHY_API_KEY?.trim() || GIPHY_FALLBACK_API_KEY;
   if (!apiKey) {
     const pick = MOCK_GIFS[Math.abs(hash(query)) % MOCK_GIFS.length];
-    return { ...pick, query, id: `${pick.id}-${hash(query)}` };
+    return [{ ...pick, query, id: `${pick.id}-${hash(query)}` }];
   }
 
   const url = new URL("https://api.giphy.com/v1/gifs/search");
@@ -89,33 +91,46 @@ export async function searchGiphy(
   url.searchParams.set("lang", "en");
 
   const res = await fetch(url.toString());
-  if (!res.ok) return null;
+  if (!res.ok) return [];
   const data = (await res.json()) as { data: GiphyGif[] };
   const candidates = data.data ?? [];
-  if (!candidates.length) return null;
+  if (!candidates.length) return [];
 
   // Rank by title relevance to the query intent; Giphy's own order breaks ties
   // so a zero-signal query still yields Giphy's top hit.
   const terms = (intentTerms?.length ? intentTerms : keywords(query)).map((t) =>
     t.toLowerCase(),
   );
-  let best = candidates[0];
-  let bestScore = -Infinity;
-  candidates.forEach((gif, idx) => {
-    const score = scoreGif(gif, terms) * 10 - idx;
-    if (score > bestScore) {
-      bestScore = score;
-      best = gif;
-    }
-  });
+  return candidates
+    .map((gif, idx) => ({ gif, score: scoreGif(gif, terms) * 10 - idx }))
+    .sort((a, b) => b.score - a.score)
+    .map(({ gif }) => ({
+      id: gif.id,
+      title: gif.title || query,
+      url: gif.images.original.url,
+      previewUrl: gif.images.fixed_height.url,
+      query,
+    }));
+}
 
-  return {
-    id: best.id,
-    title: best.title || query,
-    url: best.images.original.url,
-    previewUrl: best.images.fixed_height.url,
-    query,
-  };
+export async function searchGiphy(
+  query: string,
+  intentTerms?: string[],
+): Promise<NonNullable<GifSelection> | null> {
+  const ranked = await searchGiphyRanked(query, intentTerms);
+  return ranked[0] ?? null;
+}
+
+/** Pick the best candidate not already used, marking the choice as used. Pure —
+ *  unit-tested. Falls back to the top candidate if every option is taken. */
+export function pickUnusedGif(
+  ranked: NonNullable<GifSelection>[],
+  used: Set<string>,
+): NonNullable<GifSelection> | null {
+  if (!ranked.length) return null;
+  const fresh = ranked.find((g) => !used.has(g.id)) ?? ranked[0];
+  used.add(fresh.id);
+  return fresh;
 }
 
 function hash(s: string) {
@@ -178,32 +193,50 @@ export type CiabGifContent = {
   chats?: string[];
 };
 
-async function gifFor(
+async function rankedGifsFor(
   topic: string,
   text: string | undefined,
   fallbackSuffix: string,
-  mockIndex: number,
-): Promise<NonNullable<GifSelection>> {
+): Promise<NonNullable<GifSelection>[]> {
   const trimmed = text?.trim();
   const query = trimmed
     ? `${keywords(trimmed, 4).join(" ")} ${topic}`.trim()
     : `${topic} ${fallbackSuffix}`.trim();
-  const gif = await searchGiphy(query, keywords(`${topic} ${trimmed || ""}`, 6));
-  return gif || MOCK_GIFS[mockIndex % MOCK_GIFS.length];
+  return searchGiphyRanked(query, keywords(`${topic} ${trimmed || ""}`, 6));
 }
 
+/**
+ * Pick a GIF for every Main Box slot, guaranteeing DISTINCT GIFs across the deck
+ * (the deck has 14 GIF slots and similar section queries used to return the same
+ * top hit, so the same GIF appeared on multiple slides). Each slot takes the
+ * best ranked candidate not already used elsewhere. A `mockPool` keeps unique
+ * placeholders when no Giphy key is configured.
+ */
 export async function pickCiabGifs(topic: string, content: CiabGifContent) {
-  const welcome = await gifFor(topic, content.welcome, "security awareness welcome", 0);
+  const used = new Set<string>();
+  let mockCursor = 0;
+  const mockFallback = (): NonNullable<GifSelection> => {
+    const pick = MOCK_GIFS[mockCursor % MOCK_GIFS.length];
+    const id = `${pick.id}-${mockCursor}`;
+    mockCursor += 1;
+    return { ...pick, id, query: topic };
+  };
+  const pick = async (
+    text: string | undefined,
+    fallbackSuffix: string,
+  ): Promise<NonNullable<GifSelection>> => {
+    const ranked = await rankedGifsFor(topic, text, fallbackSuffix);
+    return pickUnusedGif(ranked, used) ?? mockFallback();
+  };
 
-  const blog = await Promise.all(
-    (content.blog || []).map((text, i) => gifFor(topic, text, "cybersecurity", i + 1)),
-  );
-  const emails = await Promise.all(
-    (content.emails || []).map((text, i) => gifFor(topic, text, "cybersecurity email", i)),
-  );
-  const chats = await Promise.all(
-    (content.chats || []).map((text, i) => gifFor(topic, text, "reaction", i + 2)),
-  );
+  // Sequential so each pick sees the ids already claimed by earlier slots.
+  const welcome = await pick(content.welcome, "security awareness welcome");
+  const blog: NonNullable<GifSelection>[] = [];
+  for (const text of content.blog || []) blog.push(await pick(text, "cybersecurity"));
+  const emails: NonNullable<GifSelection>[] = [];
+  for (const text of content.emails || []) emails.push(await pick(text, "cybersecurity email"));
+  const chats: NonNullable<GifSelection>[] = [];
+  for (const text of content.chats || []) chats.push(await pick(text, "reaction"));
 
   return { welcome, blog, emails, chats };
 }

@@ -47,6 +47,19 @@ function joinLines(lines: (string | undefined)[]): string {
   return lines.filter((l) => l !== undefined).join("\n").trim();
 }
 
+/** The generated email body sometimes already opens with the greeting; the slide
+ *  also prepends `email.greeting`, which rendered "Hi, Everyone!Hi, Everyone!".
+ *  Strip a leading duplicate greeting from the body so it appears exactly once. */
+export function stripLeadingGreeting(greeting: string, body: string): string {
+  const g = (greeting || "").trim();
+  const b = (body || "").replace(/^\s+/, "");
+  if (!g) return b.trim();
+  if (b.toLowerCase().startsWith(g.toLowerCase())) {
+    return b.slice(g.length).replace(/^\s+/, "");
+  }
+  return b;
+}
+
 /**
  * Split the welcome note the way the template lays it out: the greeting +
  * framing go in the top shape (above the GIF), and the "In this month's box you
@@ -101,7 +114,8 @@ function buildEdits(content: CiabGeneratedContent): Record<number, Edit[]> {
     const email = content.emails.find((e) => e.week === w.week) || content.emails[w.week - 1];
     const chat = content.chats.find((c) => c.week === w.week) || content.chats[w.week - 1];
     if (email) {
-      add(w.emailSlide, w.emailBody, joinLines([email.greeting, "", email.body]));
+      const emailBody = stripLeadingGreeting(email.greeting, email.body);
+      add(w.emailSlide, w.emailBody, joinLines([email.greeting, "", emailBody]));
       add(w.emailSlide, w.emailSubject, email.subject ? `Subject: ${email.subject}` : "");
     }
     if (chat) add(w.chatSlide, w.chatBody, chat.message);
@@ -180,11 +194,29 @@ const SLIDE_H = 10058400;
 const GIF_GAP = 137160; // 0.15in — uniform gap: text → GIF and GIF → caption
 const CAP_GAP = 91440; // 0.10in — GIF bottom → caption top
 const GIF_TARGET_H = 1920240; // ~2.1in — preferred GIF height
-const GIF_MIN_H = 480000; // ~0.53in — below this, skip the GIF
+export const GIF_FLOOR_H = 914400; // ~1.0in — never render a GIF smaller than this
 const GIF_MAX_W = 3520440; // ~3.85in
 const GIF_TOP_LIMIT = 1280160; // keep clear of the red page header
 const BOTTOM_MARGIN = 320040; // keep the caption clear of the slide bottom
 const EMU_PER_PT = 12700;
+// Bottom band kept clear of body copy (on GIF-slot slides) so the GIF + caption
+// always have room: GIF target + gaps + a caption line.
+const GIF_BAND_RESERVE = GIF_TARGET_H + GIF_GAP + CAP_GAP + 457200; // ~2.75in
+const MIN_AUTOFIT_SCALE = 0.55; // never shrink body text below 55%
+
+/** Autofit scale for text estimated at `estHeight` in a box of `boxCy`. Returns
+ *  null when it already fits (no shrink needed). Pure — unit-tested. */
+export function computeAutofit(
+  estHeight: number,
+  boxCy: number,
+): { fontScale: number; lnSpcReduction: number } | null {
+  if (boxCy <= 0 || estHeight <= boxCy) return null;
+  const scale = Math.max(MIN_AUTOFIT_SCALE, boxCy / estHeight);
+  return {
+    fontScale: Math.round(scale * 100000),
+    lnSpcReduction: scale < 0.9 ? 20000 : 10000,
+  };
+}
 
 type Geom = { x: number; y: number; cx: number; cy: number };
 
@@ -206,17 +238,82 @@ function geomTextShapes(slideXml: string): Array<{ xml: string; box: Geom }> {
 function estimateTextHeight(shapeXml: string, widthEMU: number): number {
   const szMatch = shapeXml.match(/sz="(\d+)"/);
   const pt = (szMatch ? Number(szMatch[1]) : 1100) / 100;
-  const lineH = 1.38 * pt * EMU_PER_PT; // slightly generous line height
-  const charW = 0.6 * pt * EMU_PER_PT; // slightly wide chars → err toward more lines
+  const lineH = 1.25 * pt * EMU_PER_PT;
+  const charW = 0.5 * pt * EMU_PER_PT;
   const cpl = Math.max(8, Math.floor(widthEMU / charW));
   const paras = shapeXml.match(/<a:p>[\s\S]*?<\/a:p>/g) || [];
-  let lines = 0.4; // base padding
+  let lines = 0.3; // base padding
   for (const p of paras) {
     const t = [...p.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join("").replace(/\s+/g, " ").trim();
-    // Each paragraph is at least one line; blank paragraphs still take vertical space.
-    lines += t === "" ? 0.85 : Math.max(1, Math.ceil([...t].length / cpl));
+    // Each paragraph is at least one line; blank paragraphs still take space.
+    lines += t === "" ? 0.6 : Math.max(1, Math.ceil([...t].length / cpl));
   }
   return Math.round(lines * lineH);
+}
+
+/** Ensure a shape's text stays inside its box: if the estimated copy height
+ *  exceeds the (possibly grown) box, add an `<a:normAutofit>` with a concrete
+ *  fontScale so PowerPoint AND Google Slides shrink it rather than letting it
+ *  spill off the slide. */
+function applyAutofit(shapeXml: string, box: Geom): string {
+  const af = computeAutofit(estimateTextHeight(shapeXml, box.cx), box.cy);
+  if (!af) return shapeXml;
+  const node = `<a:normAutofit fontScale="${af.fontScale}" lnSpcReduction="${af.lnSpcReduction}"/>`;
+  if (/<a:(no|norm|sp)Autofit\b[^>]*\/>/.test(shapeXml)) {
+    return shapeXml.replace(/<a:(no|norm|sp)Autofit\b[^>]*\/>/, node);
+  }
+  if (/<a:bodyPr\b[^>]*\/>/.test(shapeXml)) {
+    return shapeXml.replace(/<a:bodyPr\b([^>]*)\/>/, `<a:bodyPr$1>${node}</a:bodyPr>`);
+  }
+  if (/<a:bodyPr\b[^>]*>/.test(shapeXml)) {
+    return shapeXml.replace(/(<a:bodyPr\b[^>]*>)/, `$1${node}`);
+  }
+  return shapeXml;
+}
+
+/** Set a shape's box height (cy), never shrinking below its current value. */
+function growBoxTo(shapeXml: string, minCy: number): string {
+  return shapeXml.replace(
+    /(<a:ext cx="\d+" cy=")(\d+)(")/,
+    (full, pre, cy, post) => (Number(cy) >= minCy ? full : `${pre}${minCy}${post}`),
+  );
+}
+
+/**
+ * Keep every content body on its slide: grow an overflowing body box downward
+ * into the free space above the next element (reserving the GIF band on GIF-slot
+ * slides), then autofit-shrink whatever still does not fit. Index-agnostic — it
+ * targets exactly the shapes whose copy overruns their box, so short template
+ * labels are never touched.
+ */
+function fitContentShapes(slideXml: string): string {
+  let xml = slideXml;
+  const caption = findCaptionShape(xml);
+  const hasCaption = Boolean(caption);
+  const shapes = geomTextShapes(xml);
+
+  for (const { xml: shapeXml, box } of shapes) {
+    if (caption && shapeXml === caption) continue;
+    const est = estimateTextHeight(shapeXml, box.cx);
+    if (est <= box.cy) continue; // fits already — leave the template alone
+
+    // Nearest horizontally-overlapping shape below this one bounds the growth.
+    let belowTop = SLIDE_H - BOTTOM_MARGIN;
+    for (const other of shapes) {
+      if (other.xml === shapeXml) continue;
+      if (caption && other.xml === caption) continue; // caption gets moved later
+      const horiz = !(other.box.x + other.box.cx < box.x || other.box.x > box.x + box.cx);
+      if (horiz && other.box.y > box.y) belowTop = Math.min(belowTop, other.box.y);
+    }
+    const reserve = hasCaption ? GIF_BAND_RESERVE : 0;
+    const maxBottom = Math.min(belowTop - GIF_GAP, SLIDE_H - BOTTOM_MARGIN - reserve);
+    const targetCy = Math.max(box.cy, maxBottom - box.y);
+
+    let patched = growBoxTo(shapeXml, targetCy);
+    patched = applyAutofit(patched, { ...box, cy: Math.max(box.cy, targetCy) });
+    if (patched !== shapeXml) xml = xml.replace(shapeXml, () => patched);
+  }
+  return xml;
 }
 
 /**
@@ -229,7 +326,7 @@ function estimateTextHeight(shapeXml: string, widthEMU: number): number {
  * the band, shrinking the GIF; if the band is too small, the GIF is skipped.
  * Returns the GIF box and the new caption Y (or null to skip).
  */
-function computeGifPlacement(
+export function computeGifPlacement(
   slideXml: string,
   captionXml: string,
   cap: Geom,
@@ -246,8 +343,11 @@ function computeGifPlacement(
     const horizOverlap = !(s.box.x + s.box.cx < cap.x - 250000 || s.box.x > cap.x + cap.cx + 250000);
     if (!horizOverlap) continue;
     if (s.box.y < cap.y) {
-      // Text above the caption's original position — anchor the GIF below it.
-      aboveBottom = Math.max(aboveBottom, s.box.y + estimateTextHeight(s.xml, s.box.cx));
+      // Text above the caption's original position — anchor the GIF just below
+      // where the copy actually ends. fitContentShapes has already autofit the
+      // text to its box, so the true bottom is min(box height, estimated copy).
+      const textBottom = s.box.y + Math.min(s.box.cy, estimateTextHeight(s.xml, s.box.cx));
+      aboveBottom = Math.max(aboveBottom, textBottom);
     } else {
       // Fixed content below — the GIF + caption must clear it.
       belowTop = Math.min(belowTop, s.box.y);
@@ -256,8 +356,11 @@ function computeGifPlacement(
 
   const gifTop = aboveBottom + GIF_GAP;
   const band = belowTop - GIF_GAP - gifTop; // room for GIF + CAP_GAP + caption
+  // Never skip the GIF: prefer the target height, shrink toward the band, but
+  // never below the 1in floor even if it means using a little of the bottom
+  // margin. A GIF is always placed.
   let cy = Math.min(GIF_TARGET_H, band - CAP_GAP - cap.cy);
-  if (cy < GIF_MIN_H) return null;
+  if (cy < GIF_FLOOR_H) cy = GIF_FLOOR_H;
 
   let cx = Math.round(cy / aspect);
   if (cx > GIF_MAX_W) {
@@ -389,6 +492,8 @@ export async function buildCiabDeckFromTemplate(
     for (const edit of [...slideEdits].sort((a, b) => b.shape - a.shape)) {
       xml = replaceShapeText(xml, edit.shape, edit.text, slideNum);
     }
+    // Keep long copy on the slide: grow + autofit any overflowing body box.
+    xml = fitContentShapes(xml);
     zip.file(`ppt/slides/slide${slideNum}.xml`, xml);
   }
 
