@@ -632,12 +632,28 @@ export async function handleNewboxMonthSelect({
     workflow.status = "newbox_setup";
     await persist(workflow);
 
+    // Post the month/topic context, then auto-start concept research — no button
+    // press required. The concept job posts its own "Researching…" progress.
     await slackPostMessage({
       channel,
       threadTs,
       text: `Main CIAB topic for ${displayMonthLabel}`,
       blocks: ciabMonthReadyBlocks(workflowId, displayMonthLabel, ciabTopic, miniTopics),
     });
+
+    try {
+      const { dispatchCiabJob } = await import("@/lib/slack/ciab-job");
+      await dispatchCiabJob({ step: "concept", workflowId, channel, threadTs });
+    } catch {
+      // If the auto-dispatch fails, fall back to the manual button so the user
+      // can retry rather than being stuck.
+      await slackPostMessage({
+        channel,
+        threadTs,
+        text: "Couldn't auto-start the research — tap to retry:",
+        blocks: ciabMonthReadyBlocks(workflowId, displayMonthLabel, ciabTopic, miniTopics, true),
+      });
+    }
     return;
   }
 

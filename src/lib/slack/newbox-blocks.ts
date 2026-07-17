@@ -123,6 +123,10 @@ export function ciabMonthReadyBlocks(
   monthLabel: string,
   ciabTopic: string | undefined,
   calendarTopics: string[],
+  // Concept research auto-starts on month select, so the manual button is only
+  // rendered as a fallback (e.g. if the auto-dispatch fails and the user must
+  // retry). Omitted in the normal flow.
+  includeStartButton = false,
 ) {
   const lines = [
     `*Main CIAB — ${monthLabel}*`,
@@ -132,14 +136,16 @@ export function ciabMonthReadyBlocks(
     lines.push(`Related Mini Box themes: ${calendarTopics.join(", ")}`);
   }
   lines.push(
-    "\nI'll research 3-4 fresh campaign focus options grounded in recent news, then walk through outline → full draft → review.",
+    "\nResearching 3-4 fresh campaign focus options grounded in recent news, then I'll walk through outline → full draft → review.",
   );
-  return [
+  const blocks: unknown[] = [
     {
       type: "section",
       text: { type: "mrkdwn", text: lines.join("\n") },
     },
-    {
+  ];
+  if (includeStartButton) {
+    blocks.push({
       type: "actions",
       block_id: `ciab_start_${workflowId}`,
       elements: [
@@ -150,8 +156,9 @@ export function ciabMonthReadyBlocks(
           style: "primary",
         },
       ],
-    },
-  ];
+    });
+  }
+  return blocks;
 }
 
 /** 3-4 stakeholder concept options with a Select button per option. */
