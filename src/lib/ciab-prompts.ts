@@ -232,17 +232,19 @@ Past archive examples (match voice, structure, formatting, and word counts):
 
 ${CIAB_STYLE_RULES}`;
 
-export const CIAB_CONTENT_SYSTEM = `You write Living Security Campaign in a Box content. Every field you return is FINAL copy that ships to enterprise employees after review. Match the archive examples' voice, structure, formatting, and word counts precisely. Return JSON only.
+export const CIAB_CONTENT_SYSTEM = `You write Living Security Campaign in a Box content. Every field you return is FINAL copy that ships to enterprise employees after review. Match the archive examples' voice, structure, and formatting. Return JSON only.
 
-LENGTH DISCIPLINE (important — the deck slides look empty when copy is thin): write to the FULL, upper end of every word-count range. Each asset must fill its slide comfortably. Never be terse or leave a section to one or two short sentences. Develop each point with specifics: a cited statistic, a concrete example, what it means for the employee, and the action to take.`;
+LENGTH DISCIPLINE (critical — each asset is shown on ONE portrait slide, so copy that runs long overflows the slide and gets shrunk to an unreadable size): keep every asset TIGHT and within the word counts given. Aim for the MIDDLE of each range and never exceed the top. Make each sentence earn its place — one cited statistic, one concrete example, and the action to take is plenty. Do NOT pad or restate. It is better to be slightly short than to overflow the slide.
+
+Do NOT prefix list items with bullet characters (•, -, *): the template adds bullets automatically, so a leading bullet renders as a double bullet.`;
 
 /** Chunk A: Welcome Message + Blog. */
 export const CIAB_CONTENT_WELCOME_BLOG_USER = `${CIAB_CONTENT_CONTEXT}
 
 Write the Welcome Message and the Blog.
 
-- welcome.body: the program-owner note. Open with "Hello!". Welcome them to "your {{title}} Campaign in a Box!". Give a genuine 2-3 sentence framing of why this topic matters now. List what is in the box (a blog post from Living Security, weekly email messages, weekly chat messages, complementary resources). Invite them to edit and customize freely. Close with "Live Secure," then "The Living Security Team". Aim for 210-240 words (fill the slide). No contractions.
-- blog: 1050-1200 words total. blog.intro = 2-3 substantial opening paragraphs establishing the theme. blog.sections = one per weekly sub-topic (produce 4 full sections), EACH with a heading and 150-220 words of prose that cites sources inline by name, develops the point with a concrete example, and ends with a "yourMove" action. blog.conclusion = a full closing section (120-180 words) that ties the campaign together with a "yourFinalMove". Every section must fill its slide — never one or two sentences. No contractions.
+- welcome.body: the program-owner note. Open with "Hello!". Welcome them to "your {{title}} Campaign in a Box!". Give a genuine 2-sentence framing of why this topic matters now. List what is in the box (a blog post from Living Security, weekly email messages, weekly chat messages, complementary resources) WITHOUT leading bullet characters. Invite them to edit and customize freely (one sentence). Close with "Live Secure," then "The Living Security Team". Aim for 110-140 words total. No contractions.
+- blog: 480-620 words total (this whole blog is spread one section per slide, so each part must fit its own slide). blog.intro = 2 short opening paragraphs (about 90 words total) establishing the theme. blog.sections = one per weekly sub-topic (produce 4 sections), EACH with a heading and 80-110 words of prose that cites a source inline by name, gives one concrete example, and ends with a "yourMove" action. blog.conclusion = a short closing section (60-90 words) that ties the campaign together with a "yourFinalMove". No contractions.
 
 Return JSON:
 {
@@ -258,7 +260,7 @@ Return JSON:
 /** Chunk B: the four weekly emails. */
 export const CIAB_CONTENT_EMAILS_USER = `${CIAB_CONTENT_CONTEXT}
 
-Write the FOUR weekly campaign emails (Week 1-4). Week 1 introduces the whole topic; weeks 2-4 each go deep on one weekly sub-topic from the outline. Each email is a full 270-300 words (write to the top of the range so the slide is well filled — 3 to 4 developed paragraphs), opens with a greeting, cites sources inline by name where relevant, and ENDS with "Until next time," then {{ SIGNATURE }} on its own line. Each has an emoji + Title Case subject line. No contractions. Each email is standalone (no cross-references).
+Write the FOUR weekly campaign emails (Week 1-4). Week 1 introduces the whole topic; weeks 2-4 each go deep on one weekly sub-topic from the outline. Each email is 130-160 words (2 to 3 tight paragraphs — this must fit one slide, so do not exceed 160 words), opens with a greeting, cites a source inline by name where relevant, and ENDS with "Until next time," then {{ SIGNATURE }} on its own line. Each has an emoji + Title Case subject line. No contractions. Each email is standalone (no cross-references). Do NOT begin the body by repeating the greeting.
 
 Return JSON:
 {
@@ -270,7 +272,7 @@ Return JSON:
 /** Chunk C: the four weekly chats + complementary resources. */
 export const CIAB_CONTENT_CHATS_USER = `${CIAB_CONTENT_CONTEXT}
 
-Write the FOUR weekly chat messages (Week 1-4) and the Complementary Resources list. Each chat is a full 120-150 words, emoji-opened, casual (contractions allowed), tied to that week's sub-topic, develops the hook with a specific stat or example, and ends with a call for interaction — a short poll (A/B/C/D or emoji options) or a reply prompt. Keep each chat standalone. The poll question must be empowering and non-confessional (ask what the reader would do or knows, never make them admit a mistake).
+Write the FOUR weekly chat messages (Week 1-4) and the Complementary Resources list. Each chat is 70-95 words (this must fit one slide with a poll and a GIF, so keep it tight), emoji-opened, casual (contractions allowed), tied to that week's sub-topic, anchored to one specific stat or example, and ends with a call for interaction — a short poll (A/B/C/D or emoji options) or a reply prompt. Keep the poll options SHORT (under ~8 words each). Keep each chat standalone. The poll question must be empowering and non-confessional (ask what the reader would do or knows, never make them admit a mistake).
 
 For resources, recommend 3-5 real Living Security training module names relevant to the topic (e.g. "Cyber Guide: Phishing Awareness and Evolving Threats", "Quick Tip: Social Engineering").
 

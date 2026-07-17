@@ -10,6 +10,13 @@
  *   npx tsx scripts/ciab-local.mts concepts "<topic>" ["<monthLabel>"]
  *   npx tsx scripts/ciab-local.mts flow     "<topic>" ["<monthLabel>"] [conceptIndex]
  *   npx tsx scripts/ciab-local.mts full     "<topic>" ["<monthLabel>"] [conceptIndex]
+ *   npx tsx scripts/ciab-local.mts deck     "<topic>" ["<monthLabel>"] [conceptIndex]
+ *
+ * "deck" runs the ENTIRE pipeline the Slack /newbox ciab flow drives (concept ->
+ * select -> sources -> outline -> approve -> full content -> GIFs -> deck build)
+ * as direct function calls — no Slack UI, no button clicks. It auto-picks the
+ * "recommended" concept when conceptIndex is omitted, and writes the built
+ * .pptx to ./tmp/ciab-decks/ for local inspection (e.g. render + review).
  *
  * Add --post=<SLACK_CHANNEL_ID> to any command to also post to Slack, e.g.
  *   npx tsx scripts/ciab-local.mts concepts "Phishing" --post=C0BB317M74L
@@ -34,7 +41,9 @@ const args = rawArgs.filter((a) => !a.startsWith("--"));
 const command = args[0] || "concepts";
 const topic = args[1] || "Data Privacy & Access Control";
 const monthLabel = args[2] && !/^\d+$/.test(args[2]) ? args[2] : topic;
-const conceptIndex = Number(args.find((a, i) => i > 1 && /^\d+$/.test(a)) || "1");
+// Explicit numeric arg picks a concept by 1-based index; omitted = auto-pick
+// the model's "recommended" concept (falls back to the first one).
+const explicitConceptIndex = args.find((a, i) => i > 1 && /^\d+$/.test(a));
 
 /* ---- helpers ----------------------------------------------------------- */
 const t0 = Date.now();
@@ -63,6 +72,29 @@ async function maybePost(text: string, blocks?: unknown[]) {
   console.log(`${stamp()} posted to Slack channel ${postChannel}`);
 }
 
+/* ---- rebuild: re-run only the deck build from cached content (no API) --- */
+if (command === "rebuild") {
+  const jsonPath = args[1];
+  if (!jsonPath || !fs.existsSync(jsonPath)) {
+    console.error("usage: rebuild <path-to-cached-content.json>");
+    process.exit(1);
+  }
+  const saved = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+  const { buildCiabDeckFromTemplate } = await import("../src/lib/pptx/ciab-template-export.ts");
+  const { verifyCiabDeck, formatVerifyReport } = await import("../src/lib/pptx/ciab-verify.ts");
+  const pptxBuffer = await timed("rebuild .pptx from cached content", () =>
+    buildCiabDeckFromTemplate(saved.content, saved.gifs),
+  );
+  const outDir = "tmp/ciab-decks";
+  fs.mkdirSync(outDir, { recursive: true });
+  const outPath = `${outDir}/rebuild-${Date.now()}.pptx`;
+  fs.writeFileSync(outPath, pptxBuffer);
+  console.log(`${stamp()} wrote deck: ${outPath} (${(pptxBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
+  const report = await verifyCiabDeck(Buffer.from(pptxBuffer));
+  console.log(`\n${formatVerifyReport(report)}`);
+  process.exit(0);
+}
+
 /* ---- run --------------------------------------------------------------- */
 console.log(`\nCIAB local harness — command="${command}" topic="${topic}" month="${monthLabel}"`);
 if (postChannel) console.log(`Will also post to Slack channel ${postChannel}\n`);
@@ -83,8 +115,13 @@ if (command === "concepts") {
   process.exit(0);
 }
 
-const concept = conceptRes.concepts[Math.min(conceptIndex, conceptRes.concepts.length) - 1];
-console.log(`\n${stamp()} selected concept #${conceptIndex}: ${concept.title}`);
+const concept = explicitConceptIndex
+  ? conceptRes.concepts[Math.min(Number(explicitConceptIndex), conceptRes.concepts.length) - 1]
+  : conceptRes.concepts.find((c) => c.recommended) || conceptRes.concepts[0];
+console.log(
+  `\n${stamp()} selected concept: ${concept.title}` +
+    (explicitConceptIndex ? ` (explicit #${explicitConceptIndex})` : " (auto: recommended)"),
+);
 
 const sourcesRes = await timed("2/4 source research (web search)", () =>
   generateCiabSources({ concept }),
@@ -112,5 +149,58 @@ console.log(`      source=${fullRes.source}`);
 console.log(`      welcome: ${fullRes.content.welcome.body.slice(0, 120).replace(/\n/g, " ")}…`);
 console.log(`      weeks/chats generated: emails=${fullRes.content.emails?.length ?? "?"} chats=${fullRes.content.chats?.length ?? "?"}`);
 
-console.log(`\n${stamp()} DONE — full CIAB pipeline succeeded end-to-end.`);
+if (command === "full") {
+  console.log(`\n${stamp()} DONE (stopped before deck build — use "deck" to build the .pptx).`);
+  process.exit(0);
+}
+
+/* ---- deck: GIFs + build, mirroring handleCiabOutlineApproval ------------- */
+const { pickCiabGifs } = await import("../src/lib/giphy-search.ts");
+const { buildCiabDeckFromTemplate } = await import("../src/lib/pptx/ciab-template-export.ts");
+
+const content = fullRes.content;
+const gifs = await timed("5/6 pick GIFs (unique across all 14 slots)", () =>
+  pickCiabGifs(content.topic, {
+    welcome: content.welcome.body,
+    blog: [
+      ...content.blog.sections.map((s) => `${s.heading} ${s.body}`),
+      `${content.blog.conclusion.heading} ${content.blog.conclusion.body}`,
+    ],
+    emails: content.emails.map((e) => `${e.subject} ${e.body}`),
+    chats: content.chats.map((c) => c.message),
+  }),
+);
+const gifIds = [
+  gifs.welcome?.id,
+  ...gifs.blog.map((g) => g.id),
+  ...gifs.emails.map((g) => g.id),
+  ...gifs.chats.map((g) => g.id),
+].filter(Boolean);
+console.log(`      gif slots filled: ${gifIds.length} · unique: ${new Set(gifIds).size}`);
+
+const pptxBuffer = await timed("6/6 build .pptx from template", () =>
+  buildCiabDeckFromTemplate(content, gifs),
+);
+
+const outDir = "tmp/ciab-decks";
+fs.mkdirSync(outDir, { recursive: true });
+const slug = content.topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+const outPath = `${outDir}/${slug}-${Date.now()}.pptx`;
+fs.writeFileSync(outPath, pptxBuffer);
+// Cache the generated content so the deck can be rebuilt from the SAME content
+// (no API cost) while iterating on layout — `rebuild <this.json>`.
+const jsonPath = outPath.replace(/\.pptx$/, ".json");
+fs.writeFileSync(
+  jsonPath,
+  JSON.stringify({ outline: outlineRes.outline, sources: sourcesRes.sources, content, gifs }, null, 2),
+);
+console.log(`\n${stamp()} wrote deck: ${outPath} (${(pptxBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
+console.log(`${stamp()} cached content: ${jsonPath}`);
+
+/* ---- numeric verify (fast geometry gate; render is ground truth) -------- */
+const { verifyCiabDeck, formatVerifyReport } = await import("../src/lib/pptx/ciab-verify.ts");
+const report = await verifyCiabDeck(Buffer.from(pptxBuffer));
+console.log(`\n${formatVerifyReport(report)}`);
+
+console.log(`\n${stamp()} DONE — full CIAB pipeline succeeded end-to-end, deck built locally.`);
 process.exit(0);

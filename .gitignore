@@ -42,6 +42,9 @@ yarn-error.log*
 /data/*.sqlite
 /data/*.sqlite-*
 
+# local test-harness output (scripts/ciab-local.mts "deck" command)
+/tmp/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

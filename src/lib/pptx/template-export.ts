@@ -76,10 +76,13 @@ function paragraphProps(paragraph: string): string {
   return m ? m[0] : "";
 }
 
-/** First run's <a:rPr> in a paragraph or shape — preserves template styling. */
+/** First run's <a:rPr> in a paragraph or shape — preserves template styling.
+ *  Self-closing form is matched FIRST and bounded by `[^>]` so a self-closing
+ *  `<a:rPr .../>` is never mistaken for the opening of a paired `<a:rPr>…</a:rPr>`
+ *  (which would swallow the run's text and the next run, duplicating content). */
 function firstRunProps(fragment: string): string {
   const m = fragment.match(
-    /<a:r>\s*(<a:rPr[\s\S]*?<\/a:rPr>|<a:rPr[^>]*\/>)/,
+    /<a:r>\s*(<a:rPr\b[^>]*\/>|<a:rPr\b[^>]*?>[\s\S]*?<\/a:rPr>)/,
   );
   return m ? m[1] : '<a:rPr lang="en"/>';
 }

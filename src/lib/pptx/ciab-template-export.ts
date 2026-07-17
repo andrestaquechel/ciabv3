@@ -47,6 +47,16 @@ function joinLines(lines: (string | undefined)[]): string {
   return lines.filter((l) => l !== undefined).join("\n").trim();
 }
 
+/** The template auto-bullets list paragraphs, so a leading bullet glyph in the
+ *  generated copy renders as a DOUBLE bullet ("•  • A blog post…"). Strip a
+ *  leading bullet marker from each line. */
+export function stripLeadingBullets(text: string): string {
+  return (text || "")
+    .split("\n")
+    .map((line) => line.replace(/^\s*[•‣●▪·]\s*/, ""))
+    .join("\n");
+}
+
 /** The generated email body sometimes already opens with the greeting; the slide
  *  also prepends `email.greeting`, which rendered "Hi, Everyone!Hi, Everyone!".
  *  Strip a leading duplicate greeting from the body so it appears exactly once. */
@@ -83,7 +93,7 @@ function buildEdits(content: CiabGeneratedContent): Record<number, Edit[]> {
 
   const [welcomeIntro, welcomeContents] = splitWelcome(content.welcome.body);
   add(2, 1, welcomeIntro);
-  add(2, 2, welcomeContents);
+  add(2, 2, stripLeadingBullets(welcomeContents));
 
   const blogSectionText = (i: number) => {
     const s = content.blog.sections[i];
@@ -121,7 +131,7 @@ function buildEdits(content: CiabGeneratedContent): Record<number, Edit[]> {
     if (chat) add(w.chatSlide, w.chatBody, chat.message);
   }
 
-  add(20, 1, joinLines([content.resources.intro, "", ...content.resources.items]));
+  add(20, 1, stripLeadingBullets(joinLines([content.resources.intro, "", ...content.resources.items])));
 
   return edits;
 }
@@ -192,6 +202,11 @@ function findCaptionShape(slideXml: string): string | null {
 
 const SLIDE_H = 10058400;
 const GIF_GAP = 137160; // 0.15in — uniform gap: text → GIF and GIF → caption
+// Extra clearance below the estimated text bottom before the GIF starts. The
+// text-height estimate runs ~1 line short of the real render on multi-line copy;
+// this margin absorbs that so the GIF never grazes the last line. Kept in the
+// placement (not the estimate) so overflow/caption detection stays accurate.
+const GIF_SAFETY_GAP = 411480; // ~0.45in
 const CAP_GAP = 91440; // 0.10in — GIF bottom → caption top
 const GIF_TARGET_H = 1920240; // ~2.1in — preferred GIF height
 export const GIF_FLOOR_H = 914400; // ~1.0in — never render a GIF smaller than this
@@ -235,20 +250,32 @@ function geomTextShapes(slideXml: string): Array<{ xml: string; box: Geom }> {
 /** Rough rendered height (EMU) of a shape's current text at its box width.
  *  Deliberately CONSERVATIVE (over-estimates) so the GIF is pushed safely below
  *  the copy and shrinks to fit rather than ever overlapping it. */
+function autofitScale(shapeXml: string): number {
+  const m = shapeXml.match(/<a:normAutofit[^>]*\bfontScale="(\d+)"/);
+  return m ? Number(m[1]) / 100000 : 1;
+}
+
 function estimateTextHeight(shapeXml: string, widthEMU: number): number {
   const szMatch = shapeXml.match(/sz="(\d+)"/);
   const pt = (szMatch ? Number(szMatch[1]) : 1100) / 100;
-  const lineH = 1.25 * pt * EMU_PER_PT;
-  const charW = 0.5 * pt * EMU_PER_PT;
+  // Deliberately CONSERVATIVE (over-estimates height): a wide char width yields
+  // more wrapped lines and a generous line height, so the GIF is anchored safely
+  // BELOW the copy rather than ever landing on top of it. Under-estimating here
+  // is what caused GIFs to overlap text, so we err the other way. Scaled by any
+  // autofit fontScale already applied to the shape so the estimate tracks the
+  // shrunk text, keeping this in agreement with ciab-verify.
+  const lineH = 1.46 * pt * EMU_PER_PT;
+  const charW = 0.66 * pt * EMU_PER_PT;
   const cpl = Math.max(8, Math.floor(widthEMU / charW));
   const paras = shapeXml.match(/<a:p>[\s\S]*?<\/a:p>/g) || [];
-  let lines = 0.3; // base padding
+  let lines = 0.7; // base padding
   for (const p of paras) {
     const t = [...p.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join("").replace(/\s+/g, " ").trim();
-    // Each paragraph is at least one line; blank paragraphs still take space.
-    lines += t === "" ? 0.6 : Math.max(1, Math.ceil([...t].length / cpl));
+    // Each paragraph is at least one line; a blank paragraph is a full spacer
+    // (LibreOffice/Slides render inter-paragraph gaps taller than a bare line).
+    lines += t === "" ? 1.3 : Math.max(1, Math.ceil([...t].length / cpl));
   }
-  return Math.round(lines * lineH);
+  return Math.round(lines * lineH * autofitScale(shapeXml));
 }
 
 /** Ensure a shape's text stays inside its box: if the estimated copy height
@@ -289,7 +316,7 @@ function growBoxTo(shapeXml: string, minCy: number): string {
 function fitContentShapes(slideXml: string): string {
   let xml = slideXml;
   const caption = findCaptionShape(xml);
-  const hasCaption = Boolean(caption);
+  const capBox = caption ? readOffExt(caption) : null;
   const shapes = geomTextShapes(xml);
 
   for (const { xml: shapeXml, box } of shapes) {
@@ -298,14 +325,21 @@ function fitContentShapes(slideXml: string): string {
     if (est <= box.cy) continue; // fits already — leave the template alone
 
     // Nearest horizontally-overlapping shape below this one bounds the growth.
+    // The caption IS counted here: its original position marks where the GIF
+    // band begins, so a box above it must never grow down through it (that was
+    // the slide-3 collision where the intro grew into the section below).
     let belowTop = SLIDE_H - BOTTOM_MARGIN;
     for (const other of shapes) {
       if (other.xml === shapeXml) continue;
-      if (caption && other.xml === caption) continue; // caption gets moved later
       const horiz = !(other.box.x + other.box.cx < box.x || other.box.x > box.x + box.cx);
       if (horiz && other.box.y > box.y) belowTop = Math.min(belowTop, other.box.y);
     }
-    const reserve = hasCaption ? GIF_BAND_RESERVE : 0;
+    // Reserve the GIF band ONLY under shapes above the caption (the GIF sits
+    // below them). A shape BELOW the caption — e.g. the bottom blog section on
+    // slide 3 — has no GIF beneath it, so it may grow to the slide bottom
+    // instead of being pinned tiny.
+    const aboveCaption = capBox ? box.y < capBox.y : false;
+    const reserve = aboveCaption ? GIF_BAND_RESERVE : 0;
     const maxBottom = Math.min(belowTop - GIF_GAP, SLIDE_H - BOTTOM_MARGIN - reserve);
     const targetCy = Math.max(box.cy, maxBottom - box.y);
 
@@ -344,9 +378,10 @@ export function computeGifPlacement(
     if (!horizOverlap) continue;
     if (s.box.y < cap.y) {
       // Text above the caption's original position — anchor the GIF just below
-      // where the copy actually ends. fitContentShapes has already autofit the
-      // text to its box, so the true bottom is min(box height, estimated copy).
-      const textBottom = s.box.y + Math.min(s.box.cy, estimateTextHeight(s.xml, s.box.cx));
+      // where the copy ACTUALLY ends (autofit-aware estimate), not the box
+      // bottom. Using the box bottom let the GIF land on copy that overflowed a
+      // short box; anchoring to the real text extent clears it.
+      const textBottom = s.box.y + estimateTextHeight(s.xml, s.box.cx);
       aboveBottom = Math.max(aboveBottom, textBottom);
     } else {
       // Fixed content below — the GIF + caption must clear it.
@@ -354,7 +389,7 @@ export function computeGifPlacement(
     }
   }
 
-  const gifTop = aboveBottom + GIF_GAP;
+  const gifTop = aboveBottom + GIF_GAP + GIF_SAFETY_GAP;
   const band = belowTop - GIF_GAP - gifTop; // room for GIF + CAP_GAP + caption
   // Never skip the GIF: prefer the target height, shrink toward the band, but
   // never below the 1in floor even if it means using a little of the bottom

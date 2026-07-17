@@ -2,10 +2,27 @@
 import { describe, it, expect } from "vitest";
 import {
   stripLeadingGreeting,
+  stripLeadingBullets,
   computeAutofit,
   computeGifPlacement,
   GIF_FLOOR_H,
 } from "@/lib/pptx/ciab-template-export";
+
+describe("stripLeadingBullets", () => {
+  it("removes a leading bullet glyph from each line", () => {
+    expect(stripLeadingBullets("• A blog post\n• Weekly emails")).toBe(
+      "A blog post\nWeekly emails",
+    );
+  });
+  it("leaves lines without a bullet untouched", () => {
+    expect(stripLeadingBullets("In this box:\nA blog post")).toBe(
+      "In this box:\nA blog post",
+    );
+  });
+  it("does not strip a hyphen used as punctuation", () => {
+    expect(stripLeadingBullets("end-to-end guidance")).toBe("end-to-end guidance");
+  });
+});
 
 const SLIDE_H = 10058400;
 const GIF_TARGET_H = 1920240;
