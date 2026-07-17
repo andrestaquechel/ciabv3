@@ -252,13 +252,13 @@ export function ciabBoxReadyBlocks(
   if (deckUrl) {
     blocks.push({
       type: "section",
-      text: { type: "mrkdwn", text: `📊 <${deckUrl}|Open the branded deck (Google Slides) to review & comment>` },
+      text: { type: "mrkdwn", text: `📊 <${deckUrl}|Main Box: CIAB to Review>` },
     });
   }
   if (docUrl) {
     blocks.push({
       type: "section",
-      text: { type: "mrkdwn", text: `📄 <${docUrl}|Open the full box in Google Docs to review & comment>` },
+      text: { type: "mrkdwn", text: `📄 <${docUrl}|Outline: CIAB>` },
     });
   }
   blocks.push({
