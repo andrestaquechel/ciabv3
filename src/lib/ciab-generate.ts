@@ -100,7 +100,9 @@ export async function generateCiabConceptOptions({
     system: CIAB_CONCEPT_SYSTEM,
     user,
     temperature: 0.6,
-    maxTokens: 4096,
+    // Opus + web search interleaves citation text with the JSON; 4096 could cut
+    // the JSON off mid-object and fail to parse. 8192 leaves ample headroom.
+    maxTokens: 8192,
     model: researchModel,
     webSearch: true,
     webSearchMaxUses: 6,
@@ -172,7 +174,9 @@ export async function generateCiabSources({
     system: CIAB_SOURCES_SYSTEM,
     user,
     temperature: 0.3,
-    maxTokens: 4096,
+    // Same reasoning as concepts: web-search responses run long, so give the
+    // JSON room to finish rather than truncate.
+    maxTokens: 8192,
     model: researchModel,
     webSearch: true,
     webSearchMaxUses: 10,

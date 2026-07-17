@@ -168,7 +168,9 @@ Return JSON:
 /* 3. Stakeholder outline                                              */
 /* ------------------------------------------------------------------ */
 
-export const CIAB_OUTLINE_SYSTEM = `You are a Living Security content writer building the STAKEHOLDER OUTLINE for a Campaign in a Box. This outline is what Morgan and stakeholders sign off on before drafting. It must be complete, specific, and cite statistics inline with their source. Return JSON only.
+export const CIAB_OUTLINE_SYSTEM = `You are a Living Security content writer building the STAKEHOLDER OUTLINE for a Campaign in a Box. This outline is what Morgan and stakeholders sign off on before drafting.
+
+It is a HIGH-LEVEL, SKIMMABLE OVERVIEW — a reviewer should be able to read the whole thing in about two minutes (2 to 3 pages). It is NOT the finished campaign copy: describe WHAT each section will cover, do not write the blog posts, emails, or chats here. Be brief and specific. Every claim still cites its source inline by name. Return JSON only.
 
 ${CIAB_STYLE_RULES}`;
 
@@ -182,26 +184,35 @@ Vetted sources (cite ONLY these, inline by name):
 Past archive examples (match the outline format and voice):
 {{archiveExamples}}
 
-Write the full stakeholder outline as JSON. Mirror the archive outline format exactly: a Big Idea, Why This Why Now (each item a cited statistic), What Makes This Box Fresh, the Sources list, an Introduction section plus one section per weekly sub-topic and a closing "Safe Habits" section (each with prose, 3-4 key teaching points, and a Safe Data Moment / Your Move), a Campaign Arc table (one row per week), Who This Is For, and a proposed tagline.
+Write a CONCISE, high-level stakeholder outline as JSON — a 2-to-3-page overview a reviewer skims in ~2 minutes, NOT the finished copy. Keep every field short and scannable. Include a Big Idea, Why This Why Now (cited stats), What Makes This Box Fresh, the Sources list, one section per part of the campaign (an Introduction, one per weekly sub-topic, and a closing "Safe Habits" section), a Campaign Arc table (one row per week), Who This Is For, and a proposed tagline.
+
+Brevity rules (important):
+- bigIdea: ONE short paragraph (2-3 sentences) — the core insight and the empowering premise.
+- whyThisWhyNow: 3 items, ONE line each, each a single cited statistic ("According to X, …").
+- Each section description: ONE sentence describing what that section will cover (not the actual copy).
+- keyTeachingPoints: exactly 3 short phrases (about 6 words each), not sentences.
+- safeDataMoment: one short action line.
+- whatMakesThisFresh, whoThisIsFor: one to two sentences each.
+Do not write paragraphs of body copy anywhere — that comes later in drafting.
 
 Return JSON:
 {
   "title": "campaign title",
   "subtitle": "italic subtitle line",
-  "bigIdea": "2 short paragraphs stating the core insight and the empowering premise",
+  "bigIdea": "ONE short paragraph (2-3 sentences)",
   "whyThisWhyNow": ["cited stat 1 (According to X, …)", "cited stat 2", "cited stat 3"],
-  "whatMakesThisFresh": "how this box differs from prior coverage of the topic",
+  "whatMakesThisFresh": "1-2 sentences on how this box differs from prior coverage",
   "sources": [ { "name": "", "publisher": "", "url": "", "date": "", "claim": "", "tier": "" } ],
   "sections": [
     {
       "title": "🎯 Introduction: …",
-      "description": "prose with cited stats",
-      "keyTeachingPoints": ["", "", ""],
-      "safeDataMoment": "the action line for this section"
+      "description": "ONE sentence: what this section covers",
+      "keyTeachingPoints": ["short phrase", "short phrase", "short phrase"],
+      "safeDataMoment": "one short action line"
     }
   ],
   "campaignArc": [ { "week": 1, "topic": "", "focus": "" } ],
-  "whoThisIsFor": "who the campaign is for and why",
+  "whoThisIsFor": "1-2 sentences",
   "tagline": "a short campaign tagline"
 }`;
 

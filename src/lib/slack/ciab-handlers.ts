@@ -27,7 +27,6 @@ import { uploadPptxAsGoogleSlides } from "@/lib/google-drive-slides";
 import { ciabDisplayName } from "@/lib/ciab";
 import {
   ciabBoxSlackPreview,
-  ciabOutlineSlackPreview,
   renderCiabBoxHtml,
   renderCiabOutlineHtml,
 } from "@/lib/ciab-document";
@@ -220,7 +219,25 @@ export async function generateAndPostCiabOutlineFromSources({
     console.error("CIAB outline doc upload failed:", err);
   }
 
-  const preview = mrkdwnSections(ciabOutlineSlackPreview(outlineResult.outline));
+  // Keep the thread post short: the Big Idea + a link to the full outline Doc,
+  // not the whole outline dumped inline. Fall back to the section titles only if
+  // the Doc upload failed, so there is still something to act on.
+  const outline = outlineResult.outline;
+  const previewParts = [
+    `*${outline.title}*`,
+    outline.subtitle ? `_${outline.subtitle}_` : "",
+    "",
+    "*The Big Idea*",
+    (outline.bigIdea || "").trim(),
+  ];
+  if (!docUrl && outline.sections.length) {
+    previewParts.push(
+      "",
+      "*Sections*",
+      outline.sections.map((s) => `• ${s.title}`).join("\n"),
+    );
+  }
+  const preview = mrkdwnSections(previewParts.filter((l) => l !== "").join("\n"));
   await slackPostMessage({
     channel,
     threadTs,

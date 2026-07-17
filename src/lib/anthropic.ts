@@ -1,5 +1,6 @@
 import { resolveClaudeModel, modelSupportsTemperature } from "@/lib/claude-models";
 import { loadAppSettingsFromDrive } from "@/lib/box-studio-drive-data";
+import { parseJsonFromModelText, repairJsonText } from "@/lib/model-json";
 
 export async function resolveAnthropicModel(
   preferred?: string,
@@ -175,24 +176,10 @@ export async function anthropicText({
   return text;
 }
 
-export function parseJsonFromModelText<T>(text: string): T {
-  const trimmed = text.trim();
-  const fenced =
-    trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1] ?? trimmed;
-
-  try {
-    return JSON.parse(fenced) as T;
-  } catch {
-    // Web-search / tool responses can wrap the JSON in prose or citations.
-    // Fall back to the outermost object or array in the text.
-    const start = fenced.search(/[[{]/);
-    const end = Math.max(fenced.lastIndexOf("}"), fenced.lastIndexOf("]"));
-    if (start >= 0 && end > start) {
-      return JSON.parse(fenced.slice(start, end + 1)) as T;
-    }
-    throw new Error("Model response was not valid JSON.");
-  }
-}
+// Pure JSON extraction/repair lives in its own dependency-free module so it can
+// be unit-tested without pulling in Next/Drive. Re-exported here for callers
+// that already import it from "@/lib/anthropic".
+export { parseJsonFromModelText, repairJsonText };
 
 export async function anthropicJson<T>(
   params: AnthropicMessageParams,
