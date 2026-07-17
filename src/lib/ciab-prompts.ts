@@ -94,9 +94,10 @@ export const CIAB_STYLE_RULES = `LIVING SECURITY MAIN BOX STYLE RULES (follow ex
 - NO contractions in the blog or the emails (write "do not", "it is", "you are"). Contractions ARE allowed in chat messages, where the tone is more casual.
 - Global in scope. Do NOT lean on US-only references, laws, or agencies as the default; keep examples applicable to an international workforce.
 - Every asset is STANDALONE. Do NOT use sequential language across assets ("as we covered last week", "in our next email"). Each email, chat, and blog section must make sense on its own.
-- Cite sources INLINE by name, e.g. "According to the Verizon DBIR 2025, …". Never print a bare URL in body copy and never invent a statistic or a source. Use only the vetted sources provided.
+- Cite sources INLINE by name or publisher, e.g. "According to the Verizon DBIR 2025, …". When you name a source, use the source's name or publisher wording as given in the sources list (verbatim) so it can be turned into a clickable link automatically. Never print a bare URL in body copy and never invent a statistic or a source. Use only the vetted sources provided.
 - Emojis: encouraged in chat messages and as section/callout anchors (🎯, 🛡️, 🧠, 📱). Keep body prose mostly clean.
-- Blog and each blog section carry a "🎯 Your Move:" action line. Chats end with a call for interaction (a poll, an emoji reaction, or a reply prompt).
+- Blog and each blog section carry a "🎯 Your Move:" action line. It gives ONE small, concrete step AND, where it fits naturally, invites an OPEN, two-way conversation with the security team — frame them as approachable partners, not gatekeepers (e.g. "bring it to your security team", "ask your security team", "start a conversation with your security team"). The tone is open-door and no-blame: it should feel easy and welcome to raise things like this with your internal team. Vary the phrasing across sections; do not make every line about the security team.
+- Chats end with a call for interaction (a poll, an emoji reaction, or a reply prompt).
 - Emails open with a greeting ("Hi, Everyone!" / "Hello Everyone," / "Hi, Team!") and END with a sign-off line ("Until next time,") followed by the literal token {{ SIGNATURE }} on its own line. Never replace {{ SIGNATURE }}.
 - The Welcome Message is for PROGRAM OWNERS (admins), opens with "Hello!", and closes with "Live Secure," then "The Living Security Team". It always invites owners to edit/customize the content.`;
 
@@ -243,14 +244,14 @@ export const CIAB_CONTENT_WELCOME_BLOG_USER = `${CIAB_CONTENT_CONTEXT}
 
 Write the Welcome Message and the Blog.
 
-- welcome.body: the program-owner note. Open with "Hello!". Welcome them to "your {{title}} Campaign in a Box!". Give a genuine 2-sentence framing of why this topic matters now. List what is in the box (a blog post from Living Security, weekly email messages, weekly chat messages, complementary resources) WITHOUT leading bullet characters. Invite them to edit and customize freely (one sentence). Close with "Live Secure," then "The Living Security Team". Aim for 110-140 words total. No contractions.
-- blog: 480-620 words total (this whole blog is spread one section per slide, so each part must fit its own slide). blog.intro = 2 short opening paragraphs (about 90 words total) establishing the theme. blog.sections = one per weekly sub-topic (produce 4 sections), EACH with a heading and 80-110 words of prose that cites a source inline by name, gives one concrete example, and ends with a "yourMove" action. blog.conclusion = a short closing section (60-90 words) that ties the campaign together with a "yourFinalMove". No contractions.
+- welcome.body: the program-owner note. Open with "Hello!". Welcome them to "your {{title}} Campaign in a Box!". Give a genuine 1-2 sentence framing of why this topic matters now (tight — do not pad). List what is in the box (a blog post from Living Security, weekly email messages, weekly chat messages, complementary resources) WITHOUT leading bullet characters. Invite them to edit and customize freely (one sentence). Close with "Live Secure," then "The Living Security Team". Aim for 90-115 words total. No contractions.
+- blog: the AUDIENCE is END USERS (everyday employees), so make the language relatable, conversational, and genuinely enjoyable to read — not corporate or preachy. 430-560 words total (this whole blog is spread one section per slide, so each part must fit its own slide). blog.intro = ONE short paragraph (about 55-70 words) that OPENS WITH AN ENGAGING QUESTION HOOK pulling the reader in (curious and relatable), then lands the empowering premise that a little awareness puts them back in control. Keep it upbeat and human — NOT fear-mongering, NOT doom or "end of the world," just interesting. blog.sections = one per weekly sub-topic (produce 4 sections), EACH with a heading and 70-100 words of tight prose that cites a source inline by name, gives one concrete example, and ends with a "yourMove" action. blog.conclusion = a short closing section (55-80 words) that ties the campaign together with a "yourFinalMove". Be concise everywhere — cut filler. No contractions.
 
 Return JSON:
 {
   "welcome": { "body": "" },
   "blog": {
-    "title": "standalone blog title/hook",
+    "title": "standalone blog title/hook — SHORT (max ~9 words / fits two header lines)",
     "intro": "",
     "sections": [ { "heading": "", "body": "", "yourMove": "" } ],
     "conclusion": { "heading": "", "body": "", "yourFinalMove": "" }

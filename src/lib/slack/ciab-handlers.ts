@@ -386,7 +386,7 @@ export async function handleCiabOutlineApproval({
   // Branded Google Slides deck (best-effort) — the primary deliverable.
   let deckUrl: string | undefined;
   try {
-    const pptxBuffer = await buildCiabDeckFromTemplate(content, gifs);
+    const pptxBuffer = await buildCiabDeckFromTemplate(content, gifs, sources);
     const uploaded = await uploadPptxAsGoogleSlides({
       pptxBuffer: Buffer.from(pptxBuffer),
       name: boxName,

@@ -291,7 +291,7 @@ export function csmReviewBlocks(
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `📊 <${slidesLink}|Open the Google Slides deck to review & comment>`,
+        text: `📊 <${slidesLink}|Mini Box Google Slides>`,
       },
     });
   }

@@ -118,6 +118,14 @@ function withBold(rPr: string): string {
   return s.replace(/^<a:rPr\b([^>]*?)(\/?)>/, (_m, attrs, slash) => `<a:rPr${attrs} b="1"${slash}>`);
 }
 
+/** Force a run's <a:rPr> to REGULAR weight, replacing any existing b="0"/b="1".
+ *  Used when a shape is bold-by-template but should render regular except for
+ *  explicit markdown **…** spans (selective bolding). */
+function withRegular(rPr: string): string {
+  const s = rPr.replace(/\sb="[01]"/g, "");
+  return s.replace(/^<a:rPr\b([^>]*?)(\/?)>/, (_m, attrs, slash) => `<a:rPr${attrs} b="0"${slash}>`);
+}
+
 /** Strip inline markdown bold markers (**text** / __text__) so they don't render
  *  as literal asterisks/underscores — the whole body is force-bolded anyway. */
 function stripInlineEmphasisMarkers(text: string): string {
@@ -142,18 +150,24 @@ function hyperlinkRPr(baseRPr: string, id: number): string {
   return s.replace(/<\/a:rPr>\s*$/, `<a:hlinkClick r:id="__HL_${id}__"/></a:rPr>`);
 }
 
-/** Build a paragraph's runs, rendering markdown links [text](url) as real
- *  hyperlink runs (their urls pushed to linkSink for rels resolution). */
+/** Build a paragraph's runs, rendering INLINE markdown links [text](url) as real
+ *  hyperlink runs (urls pushed to linkSink for rels resolution) and INLINE bold
+ *  **text** as bolded runs (used to bold a cited source name or an article title
+ *  in the middle of a sentence). */
 function buildParagraphRuns(line: string, rPr: string, linkSink: { url: string }[]): string {
-  const re = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+  const re = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*/g;
   let idx = 0;
   let out = "";
   let m: RegExpExecArray | null;
   while ((m = re.exec(line)) !== null) {
     if (m.index > idx) out += plainRun(line.slice(idx, m.index), rPr);
-    const id = linkSink.length;
-    linkSink.push({ url: m[2] });
-    out += `<a:r>${hyperlinkRPr(rPr, id)}<a:t>${escapeXml(m[1])}</a:t></a:r>`;
+    if (m[1] !== undefined) {
+      const id = linkSink.length;
+      linkSink.push({ url: m[2] });
+      out += `<a:r>${hyperlinkRPr(rPr, id)}<a:t>${escapeXml(m[1])}</a:t></a:r>`;
+    } else {
+      out += `<a:r>${withBold(rPr)}<a:t>${escapeXml(m[3])}</a:t></a:r>`;
+    }
     idx = m.index + m[0].length;
   }
   if (idx < line.length) out += plainRun(line.slice(idx), rPr);
@@ -169,6 +183,7 @@ function setParagraphText(
   fallbackRPr: string,
   linkSink: { url: string }[] = [],
   forceBold = false,
+  baseRegular = false,
 ): string {
   const pPr = paragraphProps(paragraph);
   if (line.trim() === "") {
@@ -178,6 +193,9 @@ function setParagraphText(
   const text = forceBold ? stripInlineEmphasisMarkers(parsed.text) : parsed.text;
   let rPr = withEmphasis(firstRunProps(paragraph) || fallbackRPr, parsed.italic, parsed.bold);
   if (forceBold) rPr = withBold(rPr);
+  // Regularize a bold-by-template shape so plain runs render regular; whole-line
+  // and inline **…** bold still apply on top.
+  else if (baseRegular && !parsed.bold) rPr = withRegular(rPr);
   return `<a:p>${pPr}${buildParagraphRuns(text, rPr, linkSink)}</a:p>`;
 }
 
@@ -195,14 +213,28 @@ function setParagraphText(
  * place they otherwise land in the middle of shorter content, producing huge
  * gaps and pushing text over the slide's GIF.
  */
+/** House style forbids dashes as connectors. The model still slips in em/en
+ *  dashes and spaced double-hyphens, so normalize them to a comma before render.
+ *  Unicode dashes never appear in URLs, and only the SPACE-surrounded "--" is
+ *  touched, so markdown link slugs (e.g. foo--bar) are left intact. */
+export function normalizeDashes(text: string): string {
+  return text
+    .replace(/\s*[—–]\s*/g, ", ")
+    .replace(/ +-- +/g, ", ")
+    .replace(/ +,/g, ",")
+    .replace(/,\s*,/g, ",");
+}
+
 export function replaceShapeText(
   slideXml: string,
   shapeIndex: number,
-  newText: string,
+  rawText: string,
   slideNum?: number,
   linkSink: { url: string }[] = [],
   forceBold = false,
+  baseRegular = false,
 ): string {
+  const newText = normalizeDashes(rawText);
   const shapes = getTextShapes(slideXml);
   const shape = shapes[shapeIndex];
   if (!shape) {
@@ -244,7 +276,7 @@ export function replaceShapeText(
       contentParagraphs[contentParagraphs.length - 1] ??
       primaryTemplate;
     ci++;
-    rebuilt.push(setParagraphText(template, raw, shapeRPr, linkSink, forceBold));
+    rebuilt.push(setParagraphText(template, raw, shapeRPr, linkSink, forceBold, baseRegular));
   }
   if (!rebuilt.length) rebuilt.push(makeSpacer());
 
@@ -380,7 +412,7 @@ function layoutGifSlide(xml: string, cfg: GifLayout): string {
 
 // --- content mapping ------------------------------------------------------
 
-type ShapeEdit = { slide: number; shapeIndex: number; value: string };
+type ShapeEdit = { slide: number; shapeIndex: number; value: string; baseRegular?: boolean };
 
 /**
  * Build the list of shapes whose content differs from the Shadow AI template
@@ -397,22 +429,40 @@ function buildEdits(doc: MiniBoxDocument): ShapeEdit[] {
     shapeIndex: number,
     value: string,
     templateDefault: string,
+    baseRegular = false,
   ) => {
     if (!value?.trim()) return;
     if (isUnchanged(value, templateDefault)) return;
-    edits.push({ slide, shapeIndex, value });
+    edits.push({ slide, shapeIndex, value, baseRegular });
   };
 
   // Slide 1 — cover topic
   add(1, 0, s.title.topicTitle || doc.topic || "", d.title.topicTitle);
 
-  // Slide 2 — welcome intro + contents/closing
-  add(2, 1, s.welcome.intro, d.welcome.intro);
+  // Slide 2 — welcome intro + contents/closing. Open with "Welcome to your Mini
+  // Box: **[title]**." (title bolded) to match the reference formatting, unless
+  // the copy already opens that way.
+  const boxTitle = (s.title.topicTitle || doc.topic || "").trim();
+  const introOpensWithWelcome = /^\s*welcome to your/i.test(s.welcome.intro || "");
+  const welcomeIntro =
+    boxTitle && !introOpensWithWelcome
+      ? `Welcome to your Mini Box: **${boxTitle}**. ${s.welcome.intro}`.trim()
+      : s.welcome.intro;
+  add(2, 1, welcomeIntro, d.welcome.intro);
+  // Contents shape is bold-by-template; render it REGULAR and bold only the
+  // reference-formatted spans: the "you'll find" header line, each list item's
+  // lead (from the model's markdown), and the closing line.
+  const contentsBolded = (s.welcome.contents || "").replace(
+    /^([^\n]*you'?ll find[^\n]*)/i,
+    (m) => (/^\*\*/.test(m) ? m : `**${m}**`),
+  );
+  const closingBolded = s.welcome.closing ? `**${s.welcome.closing}**` : "";
   add(
     2,
     2,
-    [s.welcome.contents, s.welcome.closing].filter(Boolean).join("\n\n"),
+    [contentsBolded, closingBolded].filter(Boolean).join("\n\n"),
     [d.welcome.contents, d.welcome.closing].filter(Boolean).join("\n\n"),
+    true,
   );
 
   // Slide 4 — one-pager part 1 (greeting + body), callout sidebar, subject.
@@ -444,7 +494,7 @@ function buildEdits(doc: MiniBoxDocument): ShapeEdit[] {
 /** Resolve the __HL_n__ placeholders left by hyperlink runs into real slide
  *  relationship ids, appending external hyperlink relationships to the slide's
  *  .rels file. */
-async function applyHyperlinkRels(
+export async function applyHyperlinkRels(
   zip: JSZip,
   slideNum: number,
   xml: string,
@@ -526,10 +576,10 @@ export async function buildMiniBoxFromTemplate(
     let xml = await slideFile.async("string");
     const slideLinks: { url: string }[] = [];
     for (const edit of slideEdits) {
-      // Bold all body content (slides 2/4/5/7); leave the cover title (slide 1)
-      // to its own accent styling.
-      const forceBold = edit.slide !== 1;
-      xml = replaceShapeText(xml, edit.shapeIndex, edit.value, edit.slide, slideLinks, forceBold);
+      // Selective bold (matching the reference formatting): body copy renders at
+      // the template's regular weight; only markdown **…** spans (the welcome
+      // title and the "you'll find" list lead-ins) are bolded. No blanket bold.
+      xml = replaceShapeText(xml, edit.shapeIndex, edit.value, edit.slide, slideLinks, false, edit.baseRegular);
     }
     if (slideLinks.length) xml = await applyHyperlinkRels(zip, slideNum, xml, slideLinks);
     zip.file(slidePath, xml);

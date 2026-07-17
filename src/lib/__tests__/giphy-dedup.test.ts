@@ -71,4 +71,19 @@ describe("pickVariedUnusedGif", () => {
   it("returns null for an empty candidate list", () => {
     expect(pickVariedUnusedGif([], new Set(), 3)).toBeNull();
   });
+
+  it("avoids repeating a subject when usedWords is tracked (no two Messi GIFs)", () => {
+    const t = (id: string, title: string) => ({ id, url: "", previewUrl: "", query: "", title });
+    const ranked = [
+      t("m1", "Lionel Messi soccer"),
+      t("m2", "Lionel Messi trophy"),
+      t("o1", "surprised coworker reaction"),
+    ];
+    const used = new Set<string>();
+    const usedWords = new Set<string>();
+    const first = pickVariedUnusedGif(ranked, used, 0, usedWords)!;
+    const second = pickVariedUnusedGif(ranked, used, 0, usedWords)!;
+    expect(first.id).toBe("m1");
+    expect(second.id).toBe("o1"); // skips the second Messi in favor of a fresh subject
+  });
 });

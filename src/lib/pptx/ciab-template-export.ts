@@ -2,8 +2,9 @@ import JSZip from "jszip";
 import { readFile } from "fs/promises";
 import path from "path";
 import type { CiabGeneratedContent, CiabGifs } from "@/lib/ciab";
+import type { CiabSource } from "@/lib/ciab-prompts";
 import type { GifSelection } from "@/lib/mini-box";
-import { replaceShapeText } from "@/lib/pptx/template-export";
+import { applyHyperlinkRels, replaceShapeText } from "@/lib/pptx/template-export";
 
 /**
  * CIAB "Main Box" branded deck export.
@@ -83,7 +84,71 @@ function splitWelcome(body: string): [string, string] {
   return [lines.slice(0, idx).join("\n").trim(), lines.slice(idx).join("\n").trim()];
 }
 
-function buildEdits(content: CiabGeneratedContent): Record<number, Edit[]> {
+/** Wrap the first (case-insensitive) occurrence of `phrase` in **bold** markdown,
+ *  which replaceShapeText renders as a bold run. Used to bold the campaign/article
+ *  title where it is mentioned in the welcome note. */
+function boldFirst(text: string, phrase: string): string {
+  const p = (phrase || "").trim();
+  if (!p) return text;
+  const i = text.toLowerCase().indexOf(p.toLowerCase());
+  if (i < 0) return text;
+  return `${text.slice(0, i)}**${text.slice(i, i + p.length)}**${text.slice(i + p.length)}`;
+}
+
+/** Match-strings for a source, longest first — the copy cites sources by their
+ *  name OR publisher (often a publisher prefix, e.g. "Singapore Police Force"),
+ *  so we try all of them and link the longest that appears. */
+function sourceMatchStrings(s: CiabSource): string[] {
+  const out = new Set<string>();
+  const add = (v?: string) => {
+    const t = (v || "").trim();
+    if (t.length >= 6) out.add(t);
+  };
+  add(s.name);
+  add(s.publisher);
+  add((s.publisher || "").split(/[,/&(]/)[0]); // publisher before a delimiter
+  return [...out].sort((a, b) => b.length - a.length);
+}
+
+/** Turn the first mention of each cited source (by name or publisher) into a real
+ *  [text](url) markdown link — rendered as a clickable hyperlink — using the
+ *  vetted source URLs, so sources referenced in the copy are clickable. */
+function linkifySources(text: string, sources: CiabSource[]): string {
+  let out = text;
+  const usedUrls = new Set<string>();
+  for (const s of sources || []) {
+    const url = s?.url?.trim();
+    if (!url || usedUrls.has(url)) continue;
+    for (const cand of sourceMatchStrings(s)) {
+      const i = out.toLowerCase().indexOf(cand.toLowerCase());
+      if (i < 0) continue;
+      // Skip if this span is already inside a markdown link.
+      if (/\[[^\]]*$/.test(out.slice(0, i))) continue;
+      out = `${out.slice(0, i)}[${out.slice(i, i + cand.length)}](${url})${out.slice(i + cand.length)}`;
+      usedUrls.add(url);
+      break;
+    }
+  }
+  return out;
+}
+
+/** Pin a shape (matched by its exact text — the blog subtitle) to no-autofit so
+ *  Google Slides renders it at its real size instead of shrinking a longer title
+ *  to an unreadable few points. */
+function pinShapeNoAutofit(slideXml: string, exactText: string): string {
+  const key = (exactText || "").trim();
+  if (!key) return slideXml;
+  return slideXml.replace(/<p:sp\b[\s\S]*?<\/p:sp>/g, (sp) => {
+    const t = [...sp.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((m) => m[1]).join("").trim();
+    return t === key ? setNoAutofit(sp) : sp;
+  });
+}
+
+function buildEdits(
+  content: CiabGeneratedContent,
+  sources: CiabSource[] = [],
+): Record<number, Edit[]> {
+  const link = (t: string) => linkifySources(t, sources);
   const edits: Record<number, Edit[]> = {};
   const add = (slide: number, shape: number, text: string) => {
     (edits[slide] ||= []).push({ shape, text });
@@ -92,16 +157,17 @@ function buildEdits(content: CiabGeneratedContent): Record<number, Edit[]> {
   add(1, 0, content.topic);
 
   const [welcomeIntro, welcomeContents] = splitWelcome(content.welcome.body);
-  add(2, 1, welcomeIntro);
+  // Bold the campaign/article title where the welcome note names it.
+  add(2, 1, boldFirst(welcomeIntro, content.topic));
   add(2, 2, stripLeadingBullets(welcomeContents));
 
   const blogSectionText = (i: number) => {
     const s = content.blog.sections[i];
     if (!s) return "";
-    return joinLines([s.heading, "", s.body, "", yourMoveLine("Your Move:", s.yourMove)]);
+    return link(joinLines([s.heading, "", s.body, "", yourMoveLine("Your Move:", s.yourMove)]));
   };
   add(3, 2, content.blog.title || content.topic); // blog sub-title (replaces leftover example heading)
-  add(3, 1, content.blog.intro);
+  add(3, 1, link(content.blog.intro));
   add(3, 4, blogSectionText(0));
   add(4, 0, blogSectionText(1));
   add(4, 1, "");
@@ -111,13 +177,15 @@ function buildEdits(content: CiabGeneratedContent): Record<number, Edit[]> {
   add(
     7,
     1,
-    joinLines([
-      content.blog.conclusion.heading,
-      "",
-      content.blog.conclusion.body,
-      "",
-      yourMoveLine("Your Final Move:", content.blog.conclusion.yourFinalMove),
-    ]),
+    link(
+      joinLines([
+        content.blog.conclusion.heading,
+        "",
+        content.blog.conclusion.body,
+        "",
+        yourMoveLine("Your Final Move:", content.blog.conclusion.yourFinalMove),
+      ]),
+    ),
   );
 
   for (const w of WEEK_SLIDES) {
@@ -125,10 +193,10 @@ function buildEdits(content: CiabGeneratedContent): Record<number, Edit[]> {
     const chat = content.chats.find((c) => c.week === w.week) || content.chats[w.week - 1];
     if (email) {
       const emailBody = stripLeadingGreeting(email.greeting, email.body);
-      add(w.emailSlide, w.emailBody, joinLines([email.greeting, "", emailBody]));
+      add(w.emailSlide, w.emailBody, link(joinLines([email.greeting, "", emailBody])));
       add(w.emailSlide, w.emailSubject, email.subject ? `Subject: ${email.subject}` : "");
     }
-    if (chat) add(w.chatSlide, w.chatBody, chat.message);
+    if (chat) add(w.chatSlide, w.chatBody, link(chat.message));
   }
 
   add(20, 1, stripLeadingBullets(joinLines([content.resources.intro, "", ...content.resources.items])));
@@ -654,24 +722,32 @@ async function injectGifs(zip: JSZip, gifs: Partial<CiabGifs> | undefined): Prom
 export async function buildCiabDeckFromTemplate(
   content: CiabGeneratedContent,
   gifs?: Partial<CiabGifs>,
+  sources: CiabSource[] = [],
 ): Promise<Buffer> {
   const templateBuffer = await readFile(TEMPLATE_PATH);
   const zip = await JSZip.loadAsync(templateBuffer);
 
-  const edits = buildEdits(content);
+  const edits = buildEdits(content, sources);
+  const blogSubtitle = content.blog.title || content.topic;
   for (const [slideStr, slideEdits] of Object.entries(edits)) {
     const slideNum = Number(slideStr);
     const file = zip.file(`ppt/slides/slide${slideNum}.xml`);
     if (!file) continue;
     let xml = await file.async("string");
+    // Collect hyperlink urls from [name](url) markdown across this slide's edits.
+    const linkSink: { url: string }[] = [];
     for (const edit of [...slideEdits].sort((a, b) => b.shape - a.shape)) {
-      xml = replaceShapeText(xml, edit.shape, edit.text, slideNum);
+      xml = replaceShapeText(xml, edit.shape, edit.text, slideNum, linkSink);
     }
     // Drop the template's redundant double-spacing (blank line + 12pt-before) on
     // multi-paragraph body copy — tighter, cleaner, and frees room for the GIF.
     xml = xml.replace(/<p:sp\b[\s\S]*?<\/p:sp>/g, (sp) => deDoubleSpace(sp));
     // Keep long copy on the slide: grow + autofit any overflowing body box.
     xml = fitContentShapes(xml);
+    // The blog subtitle must render at its real size, not be shrunk by Slides.
+    if (slideNum === 3) xml = pinShapeNoAutofit(xml, blogSubtitle);
+    // Turn [name](url) placeholders into real slide hyperlink relationships.
+    if (linkSink.length) xml = await applyHyperlinkRels(zip, slideNum, xml, linkSink);
     zip.file(`ppt/slides/slide${slideNum}.xml`, xml);
   }
 

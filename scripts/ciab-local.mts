@@ -83,7 +83,7 @@ if (command === "rebuild") {
   const { buildCiabDeckFromTemplate } = await import("../src/lib/pptx/ciab-template-export.ts");
   const { verifyCiabDeck, formatVerifyReport } = await import("../src/lib/pptx/ciab-verify.ts");
   const pptxBuffer = await timed("rebuild .pptx from cached content", () =>
-    buildCiabDeckFromTemplate(saved.content, saved.gifs),
+    buildCiabDeckFromTemplate(saved.content, saved.gifs, saved.sources),
   );
   const outDir = "tmp/ciab-decks";
   fs.mkdirSync(outDir, { recursive: true });
@@ -179,7 +179,7 @@ const gifIds = [
 console.log(`      gif slots filled: ${gifIds.length} · unique: ${new Set(gifIds).size}`);
 
 const pptxBuffer = await timed("6/6 build .pptx from template", () =>
-  buildCiabDeckFromTemplate(content, gifs),
+  buildCiabDeckFromTemplate(content, gifs, sourcesRes.sources),
 );
 
 const outDir = "tmp/ciab-decks";
