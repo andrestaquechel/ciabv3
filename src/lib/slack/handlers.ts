@@ -44,12 +44,7 @@ import {
   resolveAwaitingCalendarWorkflow,
 } from "@/lib/slack/newbox-handlers";
 import { startCsmReview } from "@/lib/slack/csm-review";
-import {
-  handleCiabConceptSelection,
-  handleCiabOutlineApproval,
-  handleCiabOutlineRegenerate,
-  handleCiabStart,
-} from "@/lib/slack/ciab-handlers";
+import { dispatchCiabJob } from "@/lib/slack/ciab-job";
 import { applyCsmFeedbackAndFinalize } from "@/lib/slack/morgan-review";
 import { monthCiabTopic, monthCalendarLabel, MONTH_LABELS, resolveCalendarYear } from "@/lib/annual-calendar-types";
 import { resolveSlackReview } from "@/lib/slack/review-settings";
@@ -817,31 +812,34 @@ export async function handleBlockActions(payload: {
     return;
   }
 
+  // CIAB steps run Claude + web search past the 60s interaction limit, so they
+  // are queued to /api/webhooks/slack/ciab-research (maxDuration=300) instead of
+  // running inline here. Each handler posts its own progress + result messages.
   if (action.action_id.startsWith("ciab_start:")) {
     const workflowId = action.action_id.split(":")[1];
     if (!workflowId) return;
-    await handleCiabStart({ workflowId, channel, threadTs });
+    await dispatchCiabJob({ step: "concept", workflowId, channel, threadTs });
     return;
   }
 
   if (action.action_id.startsWith("select_concept:")) {
     const [, workflowId, conceptId] = action.action_id.split(":");
     if (!workflowId || !conceptId) return;
-    await handleCiabConceptSelection({ workflowId, conceptId, channel, threadTs });
+    await dispatchCiabJob({ step: "concept-select", workflowId, conceptId, channel, threadTs });
     return;
   }
 
   if (action.action_id.startsWith("approve_ciab_outline:")) {
     const workflowId = action.action_id.split(":")[1];
     if (!workflowId) return;
-    await handleCiabOutlineApproval({ workflowId, channel, threadTs, userId });
+    await dispatchCiabJob({ step: "outline-approve", workflowId, channel, threadTs, userId });
     return;
   }
 
   if (action.action_id.startsWith("regenerate_ciab_outline:")) {
     const workflowId = action.action_id.split(":")[1];
     if (!workflowId) return;
-    await handleCiabOutlineRegenerate({ workflowId, channel, threadTs });
+    await dispatchCiabJob({ step: "outline-regenerate", workflowId, channel, threadTs });
     return;
   }
 
