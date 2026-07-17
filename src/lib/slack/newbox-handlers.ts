@@ -466,6 +466,47 @@ export async function buildNewboxWizardResponse({
   };
 }
 
+/** Build the wizard and post it to the channel — used by the slash command's
+ *  background (after()) work so the command itself can ack within Slack's 3s
+ *  limit instead of blocking on the wizard's Drive/DB reads and writes. */
+export async function runNewboxWizardAndPost({
+  channel,
+  userId,
+  parsed,
+}: {
+  channel: string;
+  userId?: string;
+  parsed: { boxType?: "mini-box" | "ciab"; month?: string };
+}) {
+  try {
+    const wizard = await buildNewboxWizardResponse({ channel, userId, parsed });
+    const posted = await slackPostMessage({
+      channel,
+      text: wizard.text,
+      blocks: wizard.blocks,
+    });
+    // Calendar-upload prompt needs its message ts registered so a photo/text
+    // reply in that thread is recognized as the calendar upload.
+    if (wizard.text === "Annual topic calendar needed" && posted.ts) {
+      await registerSlackWorkflowThread(channel, posted.ts, wizard.workflowId);
+      const workflow = await loadSlackWorkflowFromDrive(wizard.workflowId);
+      if (workflow) {
+        await registerCalendarWait(
+          wizard.workflowId,
+          channel,
+          posted.ts,
+          workflow.boxType,
+        );
+      }
+    }
+  } catch (err) {
+    await slackPostMessage({
+      channel,
+      text: `New box wizard failed: ${err instanceof Error ? err.message : "unknown error"}`,
+    });
+  }
+}
+
 async function runTopicResearchAsync(
   args: Parameters<typeof import("@/lib/slack/topic-research-job").dispatchTopicResearchJob>[0],
 ) {
